@@ -11,5 +11,8 @@ The analysis scripts are organized into sub-directories, with each major section
 ```
 .
 ├── README.md
-├── homology-prediction/    # Scripts for identifying ohnologs and orthologs
+├── blacklist-regions/         # Generation of genome-specific blacklist tracks to mask artefacts
+├── chromatin-state-annotations/ # ChromHMM scripts and reports for genome-wide chromatin state calls
+├── homology-prediction/       # Scripts for identifying ohnologs and orthologs
+└── nfcore-pipelines/          # Pipeline configurations and resources for RNA-seq, ATAC-seq, and ChIP-seq processing
 ```
