@@ -1,0 +1,524 @@
+---
+title: "Salmon-trout quartets using compara 106 trees"
+output: 
+  html_document:
+    theme: yeti
+    code_folding: hide
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(ape)
+
+options(dplyr.summarise.inform = FALSE)
+```
+
+## Aim and strategy
+
+The aim is to classify the ohnolog (Ss4R) and ortholog relationship between Atlantic salmon and Rainbow trout genes and represent this as a table. These relationships are fully defined by the gene-tree but can be obscured by incorrect gene-tree estimation and/or delayed re-diploidisation. While there has been some large scale rearrangments and most of the duplicated chromosomes have fused with other chromosomes, the vast majority of duplicated genes are found in large syntenic/co-linear blocks. This retained synteny can be used to identify/verify the relationship in clades where the phylogeny is not clear.
+
+The strategy is to:
+
+1. Extract the salmonid+pike clades from the larger gene-trees. Pike, the closest pre-WGD lineage, is included to ensure that the clade includes both of the duplicated salmonid clades.
+2. Select the clades with 2:2 salmon and trout orthologs.
+3. Check the phylogeny of these 2:2 clades and keep those with phylogeny in agreement with Ancestral Ortholog Resolution (AORe), i.e. there are two clades, each with one salmon and one trout ortholog.
+3. Count occurences of chromosome combinations in the 2:2 AORe clades and define the most common as syntenic chromosome quartets.
+4. Use these to verify synteny of incomplete clades (i.e. 2:1, 2:0, 1:1)
+5. In addition, the phylogeny (i.e. LORe/AORe) of the 2:2 clades can transferred to non 2:2 by proximity. (i.e. identifying putative LORe regions)
+
+```{r loadData}
+# Subset of species in Ensembl 106 compara trees
+
+spcTree <- read.tree("data/Ens106s/spcTree.nw")
+OGtbl <- readRDS("data/Ens106s/OGtbl.RDS")
+
+Omyk_genePos <- read_tsv("https://salmobase.org/datafiles/orthology/2021-11/PrepInput_pipeline/genePosTbls/Omyk_genePos.tsv",
+                         col_types=cols(seqname=col_character()))
+Ssal_genePos <- read_tsv("https://salmobase.org/datafiles/orthology/2021-11/PrepInput_pipeline/genePosTbls/Ssal_genePos.tsv",
+                         col_types=cols(seqname=col_character()))
+
+```
+
+
+
+### Table structure
+
+Columns:
+
+* subOG - unique identifier for the pike+salmonid (Protacanthopterygii) clade/orthogroup 
+* AB - Designates the A or B duplicate syntenic chromosome quartet. NA if synteny not verifiable. Note that it does not make sense to use this in LORe regions.
+* spc - Species (Ssal/Omyk)
+* geneID - Ensembl gene id
+* chr - Chromosome (formatted, e.g. "Omy05". Might want to keep the original name?)
+* start, end, strand
+* nSsal, nOmyk - Number of genes in clade per species (used to filter, e.g. 2:2, 2:1, 1:1, 2:0, 1:0)
+* synteny - Syntenic chromosome quartet "((Omy,Ssa),(Omy,Ssa))". NA - not consistent with major quartet, i.e. synteny not verified. For 2:1, 2:0 and 1:1 clades, it will be set if it is a partial match. In the case where partial match is ambiguous it will be NA.
+* phylogeny - LORe/AORe or the actual phylogeny if cryptic. Only for 2:2 clades with verified synteny. Otherwise NA
+* proxiSynteny - Proximal quartet. For non 2:2 clades, fetch the synteny from nearest 2:2 clade in synteny (within 1MB)
+* proxiPhylogeny - Proximal phylogeny, i.e. LORe/AORe from nearest 2:2 clades in synteny. (Use majority vote of 5 nearest)
+* reciprocalLoss - TRUE/FALSE, but only for 1:1 clades with proxyPhylogeny=AORe in both copies, otherwise NA
+
+The purpose of the table is to easily pick out certain classes of clades. As it is now we can easily pick out 2:2,1:2 etc.. by the nSsal and nOmyk columns. The verified synteny (synteny != NA) can be used to select high confidence clades.
+
+Limitations: This table is very focused on Salmon+Trout and may not be suitable when e.g. only looking at one of the species. Clades with extra paralogs, i.e. more than two copies per species, are excluded.
+
+### Get clades from gene-trees
+
+```{r initial table}
+# Table of all Salmon-Trout genes from ortholog groups at the Protacanthopterygii level
+tbl <-
+  OGtbl %>% 
+  select(subOG=Protacanthopterygii, spc, geneID) %>%  filter(spc %in% c("Omyk","Ssal")) %>% 
+  left_join( rbind(Omyk_genePos,Ssal_genePos),by="geneID") %>% 
+  group_by(subOG) %>% 
+  mutate(nSsal = sum(spc=="Ssal")) %>% 
+  mutate(nOmyk = sum(spc=="Omyk")) %>% 
+  ungroup() %>% 
+  mutate( chr = paste0( substr(spc,1,3) , ifelse(seqname !="Y" & nchar(seqname)==1,"0","") ,seqname) )
+```
+
+The Ensembl compara 106 gene-trees are used to identify ortholog-groups/clades containing salmonids+pike (Corresponds to the "Protacanthopterygii" node in the species tree). These clades should include both of the duplicated salmonid clades. There are `r length(unique(tbl$subOG))` such clades.
+
+```{r count genes plot}
+tbl %>% 
+  select(subOG,nSsal,nOmyk) %>% distinct() %>% 
+  mutate(nSsal = ifelse(nSsal>=5,"5+",nSsal)) %>% 
+  mutate(nOmyk = ifelse(nOmyk>=5,"5+",nOmyk)) %>%
+  count(nSsal,nOmyk) %>% 
+  ggplot(aes(x=nSsal,y=nOmyk,fill=n)) + geom_tile() + geom_text(aes(label=n)) + 
+  scale_fill_gradient("clades",low = "white",high="red",) + theme_classic() +
+  ylab("Rainbow trout genes in clade") + xlab("Atlantic salmon genes in clade")
+```
+
+The `r tbl %>% filter(nSsal==2,nOmyk==2) %>% with(length(unique(subOG)))` clades with two copies in both species (i.e. 2:2 clades) are used to identify chromosome quartets and their phylogenic.
+
+### Phylogeny
+
+```{r get quartet phylogeny, cache=TRUE}
+allTrees <- readRDS("data/Ens106s/allTrees.RDS")
+
+# get phylogeny (as newick string) sorted by tip.labels
+getSorted <- function(phylo,node=setdiff(phylo$edge[,1],phylo$edge[,2])){
+  if( node <= Ntip(phylo)){
+    # if tip return tip.label
+    return( list(sortValue = phylo$tip.label[node], str = phylo$tip.label[node]))
+  } else{
+    # if clade recall on children
+    children <- phylo$edge[phylo$edge[,1]==node,2]
+    x=data.frame(sortValue=character(0),str=character(0))
+    for( child in children){
+      x <- rbind(x,Recall(phylo,node=child))
+    }
+    # sort
+    x = x[order(x$sortValue),] 
+    #and return list(sortValue = sortValue1, str = "(str1,str2)")
+    return( list(
+      sortValue = paste(x$sortValue,collapse=","),
+      str = paste0("(",paste(x$str,collapse=","),")")
+    ))
+  }
+}
+
+getPhyloSorted <- function(subOG,geneIDs,sortlabels){
+  subTree <- 
+    allTrees[[sub("\\..*","",subOG)]]@phylo %>% 
+    keep.tip(which(sub("^(.*)_(....)$","\\1",.$tip.label) %in% geneIDs)) 
+  
+  subTree$tip.label <- sortlabels[match(sub("(.*)_(....)$","\\1",subTree$tip.label),geneIDs)]
+  
+  getSorted(subTree)$str
+}
+
+tbl22 <- 
+  tbl %>% 
+  filter(nSsal==2,nOmyk==2) %>% 
+  group_by(subOG) %>% 
+  mutate( chrSorted = paste(sort(chr),collapse = ",")) %>% 
+  mutate(chrPhylo=getPhyloSorted(subOG = subOG[1],geneIDs = geneID,sortlabels = chr)) %>% 
+  mutate(spcPhylo=getPhyloSorted(subOG = subOG[1],geneIDs = geneID,sortlabels = spc)) %>% 
+  mutate( ORe = case_when(
+    spcPhylo == "((Omyk,Ssal),(Omyk,Ssal))" ~ "AORe",
+    spcPhylo == "((Omyk,Omyk),(Ssal,Ssal))" ~ "LORe",
+    TRUE ~ "cryptic")) %>% 
+  ungroup()
+```
+
+Each clade can be divided into three category of phylogeny:
+
+* Ancestral ortholog resolution (AORe)
+* Lineage specific ortholog resolution (LORe)
+* Neither (cryptic)
+
+```{r quartet phylogenies, fig.width=4, fig.height=4}
+
+n = tbl22 %>% select(subOG,ORe) %>% distinct() %>% with(table(ORe))
+plot.phylo(x.lim = 5,read.tree(text = "((Omy,Ssa),(Omy,Ssa));"),type = "c",
+     main=paste("AORe n =", n["AORe"]))
+
+plot(read.tree(text = "((Omy,Omy),(Ssa,Ssa));"),type = "c",
+     main=paste("LORe n =", n["LORe"]))
+
+plot(read.tree(text = "(((?,?),?),?);"),type = "c",
+     main=paste("cryptic n =", n["cryptic"]))
+
+```
+
+### Syntenic chromosome quartets
+
+Identify the most common chromosome quartets regardless of phylogeny (n>20). Assign the most common AORe phylogeny.
+
+```{r get synteny quartets}
+set.seed(45)
+# Identify the most common chromosome quartets regardless of phylogeny (n>20) and assign a color to each
+chrQuartColor <-
+  tbl22 %>%
+  group_by(subOG) %>% 
+  filter( !any(grepl("[^0-9Y]",seqname))) %>%
+  filter( !any(duplicated(chr)) ) %>% 
+  ungroup() %>% 
+  select(subOG,chrSorted) %>% distinct() %>% 
+  count(chrSorted) %>%
+  filter(n>20) %>%
+  arrange(-n) %>% 
+  mutate( i = 1:n()) %>% 
+  select(-n) %>% 
+  mutate( color = randomcoloR::distinctColorPalette(n())) %>% 
+  # Assign the most common AORe phylogeny.
+  inner_join(filter(tbl22, ORe == "AORe") %>% select(chrSorted, chrPhylo), by = "chrSorted") %>% 
+  group_by(chrSorted) %>% 
+  add_count(chrPhylo) %>% 
+  mutate( chrQuartet = chrPhylo[which.max(n)]) %>% 
+  ungroup() %>% 
+  select(-n,-chrPhylo) %>% distinct()
+    
+    
+    
+
+# Assign the most common AORe phylogeny
+tbl22 %>%
+  left_join( chrQuartColor, by = "chrSorted") %>% 
+  # reclassify "flipped" AORe to cryptic
+  mutate( ORe = ifelse( is.na(chrQuartet),ORe, ifelse((ORe == "AORe") & (chrPhylo != chrQuartet), "cryptic", ORe))) %>% 
+  mutate( color = ifelse(is.na(color),"grey",color)) %>% 
+  mutate( i = ifelse(is.na(i),0,i)) %>% 
+  mutate( chrQuartet = ifelse(is.na(chrQuartet),"Other",chrQuartet)) %>% 
+  select(subOG,chrQuartet,color,i,ORe) %>% distinct() %>% 
+  arrange(i) %>% 
+  mutate(chrQuartet = forcats::fct_inorder(chrQuartet)) %>% 
+  ggplot(aes(y=chrQuartet,fill=color,color=ORe)) + 
+  geom_bar(aes(y=chrQuartet,fill=color,linetype=ORe),color="black",width=0.7,linewidth=0.5) + 
+  scale_fill_identity() +
+  scale_linetype_manual(values = c(cryptic="dashed",LORe="solid",AORe=NA),) +
+  theme_classic() + theme(axis.line.y = element_blank())
+
+# # Alternative attempt of the plot
+# tbl22 %>%
+#   left_join( chrQuartColor, by = "chrSorted") %>%
+#   # reclassify "flipped" AORe to cryptic
+#   mutate( ORe = ifelse( is.na(chrQuartet),ORe, ifelse((ORe == "AORe") & (chrPhylo != chrQuartet), "cryptic", ORe))) %>% 
+#   mutate( color = ifelse(is.na(color),"grey",color)) %>% 
+#   mutate( i = ifelse(is.na(i),0,i)) %>% 
+#   mutate( chrQuartet = ifelse(is.na(chrQuartet),"Other",chrQuartet)) %>% 
+#   select(subOG,chrQuartet,color,i,ORe) %>% distinct() %>% 
+#   arrange(i) %>% 
+#   mutate(chrQuartet = forcats::fct_inorder(chrQuartet)) %>% 
+#   mutate(ORe = c(AORe=NA,LORe="black",cryptic="darkgrey")[ORe]) %>% 
+#   mutate(ORe = factor(ORe,levels=c("darkgrey","black",NA))) %>% 
+#   group_by(chrQuartet) %>% 
+#   ggplot(aes(y=chrQuartet)) + 
+#   geom_bar(aes(fill=color),width=0.7, just=0) +
+#   # geom_bar(aes(fill=ORe),width=0.3) + 
+#   geom_bar(data= . %>% filter(!is.na(ORe)), aes(fill=ORe),width=0.1, just=1 ) + 
+#   # geom_bar(data= . %>% filter(!is.na(ORe)), aes(fill=ORe),width=0.2, position = position_nudge(y = 0.5)) + 
+#   scale_fill_identity() + theme_classic() + theme(axis.line.y = element_blank())
+
+n22inQuart <- tbl22 %>% select(subOG,chrSorted) %>% distinct() %>% with(sum(chrSorted %in% chrQuartColor$chrSorted))
+n22notQuart <- tbl22 %>% select(subOG,chrSorted) %>% distinct() %>% with(sum(!(chrSorted %in% chrQuartColor$chrSorted)))
+n22withScaffold <- tbl22 %>% distinct(subOG,chrSorted) %>% 
+  filter(!(chrSorted %in% chrQuartColor$chrSorted)) %>% 
+  mutate(hasScaffold = nchar(chrSorted) > 23) %>% 
+  with(sum(hasScaffold))
+n22withScaffold <- tbl22 %>% distinct(subOG,chrSorted) %>% 
+  filter(!(chrSorted %in% chrQuartColor$chrSorted)) %>% 
+  mutate(hasScaffold = nchar(chrSorted) > 23) %>% 
+  with(sum(hasScaffold))
+n22withDupChr <- tbl22 %>% 
+  filter(!(chrSorted %in% chrQuartColor$chrSorted)) %>% 
+  group_by(subOG) %>% 
+  summarise(subOG=any(duplicated(chr))) %>% 
+  with(sum(subOG))
+
+```
+
+In total there are `r n22inQuart` 2:2 clades in `r nrow(chrQuartColor)` distinct syntenic chromosome quartets (observed more than 20 times and no duplicates on same chromosome). The remaining (Other) `r n22notQuart` 2:2 clades include `r n22withScaffold` clades with unplaced scaffolds and `r n22withDupChr` with duplicate on same chromosome.
+
+```{r flippedAOReCount}
+ORe_count <- 
+  tbl22 %>%
+  left_join( chrQuartColor, by = "chrSorted") %>% 
+  mutate( ORe = ifelse( is.na(chrQuartet),ORe, ifelse((ORe == "AORe") & (chrPhylo != chrQuartet), "fAORe", ORe))) %>% 
+  distinct(subOG,ORe) %>% with(table(ORe))
+
+```
+
+With the syntenic chromosome quartets we can now detect that `r ORe_count["fAORe"]` of `r ORe_count["AORe"]+ORe_count["fAORe"]` AORe clades have "flipped" phylogeny, i.e. the orthologs are on the opposite chromosome compared to the majority. TODO: reclassify these as "cryptic" phylogeny
+
+
+```{r, fig.height=7}
+tbl22 %>% 
+  inner_join(chrQuartColor, by = "chrSorted") %>% 
+  ggplot() + geom_point(aes(x=chr,y=start,color=color)) + 
+  scale_color_identity() 
+```
+
+### Transfer phylogeny and synteny to proximal genes
+
+The identified syntenic chromosome quartets and the AORe/LORe phylogeny can now be applied to the incomplete (0:1, 0:2, 1:1 and 1:2) clades by proximity. (This is done by selecting the 5 closest 2:2 genes within 1MB)
+
+```{r, cache=TRUE}
+library(fuzzyjoin)
+
+# use known 2:2 quartet
+Y <-
+  tbl22 %>% 
+  inner_join(chrQuartColor, by = "chrSorted") %>% 
+  # reclassify "flipped" AORe to cryptic
+  mutate( ORe = ifelse( is.na(chrQuartet),ORe, ifelse((ORe == "AORe") & (chrPhylo != chrQuartet), "cryptic", ORe))) %>% 
+  select(ORe,chrSorted,chr,start,end)
+
+# # for each gene in the 2:0, 2:1, 1:1 and 1:0 clades, get the ORe and chrSorted from nearest 2:2 quartets
+# get the ORe and chrSorted from nearest 2:2 quartet
+proximityTbl <-
+  tbl %>% 
+  # # Filter 2:0, 2:1, 1:1 and 1:0 clades
+  # filter(nSsal <= 2, nOmyk <= 2, nSsal + nOmyk < 4) %>%
+  # # filter clades with scaffolds or duplicate with chromosome
+  # group_by(subOG) %>%
+  # filter( !any(grepl("[^0-9Y]",seqname))) %>%
+  # filter( !any(duplicated(chr))) %>%
+  # ungroup() %>%
+  select( geneID, chr, start, end) %>% 
+  mutate( range_start = start - 1e6, range_end = end + 1e6) %>% 
+  genome_join(Y, by=c("chr"="chr", "range_start"="start","range_end"="end")) %>% 
+  filter(start.x!=start.y) %>% # remove self hits
+  mutate(dist = abs(start.x+end.x - (start.y+end.y))/2) %>% 
+  group_by(geneID) %>% 
+  slice_min(order_by = dist, n = 5) %>% #sort by distance and select 5 lowest
+  summarise(OReUnanimous = length(unique(ORe))==1,
+            OReMajority = names(sort(table(ORe),decreasing = T)[1]),
+            chrSorted = chrSorted[1], ORe=ORe[1])
+
+```
+
+
+### Synteny verification
+
+Clades containing genes on unplaced scaffolds or duplicates on same chromosome cannot be verified. Here are the number of such cases:
+
+```{r }
+# first identify the "invalid" clades with either unplaced scaffolds, or duplicate within chromosome
+tbl %>% 
+  # Filter 2:0, 2:1, 1:1 clades
+  filter(nSsal <= 2, nOmyk <= 2, nSsal + nOmyk < 4, nSsal + nOmyk > 1) %>%
+  group_by(subOG) %>%
+  summarise( hasScaffold = any(grepl("[^0-9Y]",seqname)),
+             hasDupChr = any(duplicated(chr)),
+             nSsalOmyk = paste(sort(c(nSsal[1],nOmyk[1])),collapse = ":")) %>%
+  mutate( valid=ifelse(hasScaffold,"hasScaffold",ifelse(hasDupChr,"hasDupChrom","OK"))) %>% 
+  with( knitr::kable(table(nSsalOmyk,valid)))
+```
+
+
+For clades with 2 or 3 genes (2:0, 2:1, 1:1) we can verify conserved synteny by matching the chromosome combination with chromosome quartets. 
+
+```{r, cache=TRUE}
+chr2quart <-
+  chrQuartColor %>% 
+  select(chr = chrSorted, chrQuartet) %>% 
+  mutate( chr = strsplit(chr,split=",")) %>% 
+  unnest(chr)
+
+# given a set of chromosomes, find the matching chomosome quartet
+matchSubset <- function(chrList){
+  chr2quart %>% 
+    filter(chr %in% chrList) %>% 
+    count(chrQuartet) %>% 
+    filter(n == length(chrList)) %>% 
+    with({
+      if(length(chrQuartet)==1) 
+        return(chrQuartet)
+      else 
+        return(as.character(length(chrQuartet)))
+    })
+}
+
+# Try to apply chromosome quartets for clades with 2-3 genes
+tbl23chrQuartets <-
+  tbl %>% 
+  # Filter: only 2:0, 2:1, 1:1 clades
+  filter(nSsal <= 2, nOmyk <= 2, nSsal + nOmyk < 4, nSsal + nOmyk > 1) %>%
+  group_by(subOG) %>% 
+  # Filter scaffolds or duplicate within chromosome
+  filter( !any(grepl("[^0-9Y]",seqname))) %>% 
+  filter( !any(duplicated(chr)) ) %>% 
+  # Get chromosome quartets by chromosomes only
+  mutate( chrQuartet = matchSubset(chr)) %>% 
+  group_by(subOG) %>% 
+  ungroup() %>% 
+  # Get chromosome quartets by proximity
+  left_join(proximityTbl,by="geneID") %>% 
+  group_by(subOG) %>%
+  summarise(chrQuartet=chrQuartet[1],
+            # only if they are in agreement within clade
+            chrSorted = ifelse(all(chrSorted==chrSorted[1]),chrSorted[1],NA_character_)) %>% 
+  left_join(select(chrQuartColor,chrSorted,chrQuartetByProximity=chrQuartet),by = "chrSorted") %>% 
+  mutate( chrQuartet=ifelse(nchar(chrQuartet)>1,chrQuartet,chrQuartetByProximity)) %>% 
+  select(subOG,chrQuartet)
+
+# count number of verified per ortholog type
+tbl %>% 
+  inner_join(tbl23chrQuartets, by="subOG") %>% 
+  group_by(subOG,chrQuartet) %>%
+  summarise(nSsalOmyk = paste(sort(c(nSsal[1],nOmyk[1])),collapse = ":")) %>% 
+  with(knitr::kable(table(nSsalOmyk, ifelse(!is.na(chrQuartet),"verified","noMatch"))) )
+```
+
+Note: These numbers are after removing clades with scaffold or duplicate within chromosome.
+
+### Reciprocal loss
+
+For the 1:1 genes in syntenic regions we can identify reciprocal loss
+
+```{r}
+reciprocalTbl <-
+  tbl %>% 
+  # get inferred quartets
+  inner_join(tbl23chrQuartets, by="subOG") %>%
+  filter(!is.na(chrQuartet)) %>% 
+  # filter 1:1
+  filter(nSsal==1,nOmyk==1) %>% 
+  # figure out which clade of the chromosome quartet each gene belongs to
+
+  mutate( chroms = strsplit(gsub("[()]","",chrQuartet), split=",")) %>% 
+  mutate( chrIdx = map2_int(.x=chr,.y=chroms, ~ match(.x,.y))) %>% 
+  mutate( cladeIdx = (chrIdx+1) %/% 2) %>% 
+  # get LORe/ORe by proximity
+  left_join(proximityTbl,by="geneID") %>% 
+  group_by(subOG) %>% 
+  summarise(reciprocal=cladeIdx[1] != cladeIdx[2],
+            OReMajority = ifelse(!any(is.na(ORe)) & OReMajority[1]==OReMajority[2],OReMajority[1], "uncertain"),
+            ORe = ifelse(!any(is.na(ORe)) & all(OReUnanimous) & ORe[1]==ORe[2],ORe[1], "uncertain"))
+
+
+with(reciprocalTbl, table(reciprocal,OReMajority))
+```
+
+
+### Put it all together
+
+```{r make the final table}
+# TODO: reclassify "flipped" AORe phylogeny as "cryptic"
+
+syntenyTbl <- 
+  bind_rows(
+    # 2:2 clades with synteny
+    tbl22 %>% 
+      inner_join(chrQuartColor, by = "chrSorted") %>% 
+      mutate(phylogeny = ifelse(ORe=="cryptic",chrPhylo,ORe)) %>% 
+      select(subOG, synteny=chrQuartet, phylogeny) %>% distinct(),
+    # Verified 2:1, 2:0, 1:1 clades
+    tbl23chrQuartets %>% rename(synteny=chrQuartet) %>% filter(!is.na(synteny))
+  )
+
+finalTbl <-
+  tbl %>% 
+  select(subOG, spc, geneID, chr, start, end, strand, nSsal, nOmyk) %>% 
+  left_join(syntenyTbl, by="subOG") %>% 
+  left_join(
+    proximityTbl %>% 
+      inner_join(select(chrQuartColor,-i,-color),by = "chrSorted") %>% 
+      select(geneID, proxiSynteny = chrQuartet, proxiPhylogeny = OReMajority),
+    by="geneID"
+  ) %>% 
+  left_join(
+    filter(reciprocalTbl, OReMajority=="AORe") %>% select(subOG,reciprocal),
+    by = "subOG"
+  ) %>% 
+  mutate( AB = strsplit(gsub("[()]","",synteny),split=",") ) %>% 
+  rowwise() %>% mutate( AB = match(chr,AB)) %>% ungroup() %>% 
+  mutate( AB = c("A","A","B","B")[AB]) %>% 
+  select(subOG,AB,everything())
+
+write_tsv(finalTbl,file="SalmonTroutOrthologs.tsv")
+```
+
+Table looks like this:
+
+```{r preview table}
+knitr::kable(head(finalTbl))
+```
+
+### Plot with clades and phylogenies with verified synteny
+
+```{r count genes plot2 with verified counts}
+SalmonTroutOrthologs <- read_tsv(file="SalmonTroutOrthologs.tsv",show_col_types = F)
+
+SalmonTroutOrthologs %>% 
+  mutate(verified = !is.na(synteny)) %>% 
+  select(subOG,nSsal,nOmyk,verified) %>% distinct() %>% 
+  mutate(nSsal = ifelse(nSsal>=5,"5+",nSsal)) %>% 
+  mutate(nOmyk = ifelse(nOmyk>=5,"5+",nOmyk)) %>%
+  group_by(nSsal,nOmyk) %>% 
+  summarise(n=n(), nVerified=sum(verified),.groups = "drop") %>% 
+  mutate( percVerified = paste0(round(100*nVerified/n),"%") ) %>% 
+  ggplot(aes(x=nSsal,y=nOmyk,fill=n)) + geom_tile() + 
+  geom_text(data=. %>% filter(nVerified>0),aes(label=nVerified),nudge_y = 0, fontface = "bold") + 
+  geom_text(data=. %>% filter(nVerified==0),aes(label=n),nudge_y = 0) + 
+  geom_text(data=. %>% filter(nVerified>0), aes(label=paste0("(",n-nVerified,")")),nudge_y = -0.3,size=3) + 
+  scale_fill_gradient("Number of clades",low = "white",high="red",) + theme_classic() +
+  theme(legend.position = "bottom",
+        legend.direction = "horizontal",
+        legend.title.position = "top",
+        legend.key.width = unit(1.5, "cm")) +
+  ylab("Rainbow trout genes in clade") + xlab("Atlantic salmon genes in clade") +
+  ggtitle("Clade counts by gene copy numbers") +
+  coord_equal()
+
+ggsave("CladeCountsVerifiedSynteny.pdf",height = 5, width=4)
+```
+
+```{r Phylogeny count verified synteny, fig.width=4, fig.height=4}
+n <- tbl22 %>% select(subOG,ORe) %>% distinct() %>% with(table(ORe))
+# this matches the original count, not accounting for synteny or flipped AORe
+# n=10983
+
+nVerified <- tbl22 %>% 
+  inner_join(chrQuartColor, by = "chrSorted") %>% 
+  select(subOG,ORe) %>% distinct() %>% with(table(ORe))
+# this accounts for synteny, but not flipped AORe
+# n=10521 (non-synteny excluded)
+
+# SalmonTroutOrthologs %>% 
+#   filter(nSsal==2, nOmyk==2) %>% 
+#   mutate(isSynteny = !is.na(synteny)) %>% 
+#   distinct(subOG,phylogeny,isSynteny) %>% 
+#   mutate( phylogeny = ifelse(phylogeny %in% c("AORe","LORe", NA),phylogeny,"cryptic")) %>% 
+#   with(table(phylogeny,isSynteny,useNA = "a"))
+# this accounts for synteny, but not flipped AORe. non-syntenic have phylogeny=NA
+# n=10983
+
+
+plot.phylo(x.lim = 5,read.tree(text = "((Omy,Ssa),(Omy,Ssa));"),type = "c",
+     main=paste0("AORe n = ", nVerified["AORe"], " (",(n-nVerified)["AORe"],")"))
+
+plot(read.tree(text = "((Omy,Omy),(Ssa,Ssa));"),type = "c",
+     main=paste0("LORe n = ", nVerified["LORe"], " (",(n-nVerified)["LORe"],")"))
+
+plot(read.tree(text = "(((?,?),?),?);"),type = "c",
+     main=paste0("cryptic n = ", nVerified["cryptic"], " (",(n-nVerified)["cryptic"],")"))
+
+
+```

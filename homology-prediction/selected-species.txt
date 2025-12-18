@@ -1,0 +1,47 @@
+Oncorhynchus.mykiss
+Oncorhynchus.tshawytscha
+Oncorhynchus.kisutch
+Salmo.trutta
+Salmo.salar
+Hucho.hucho
+Esox.lucius
+Gasterosteus.aculeatus
+#Sparus.aurata
+#Dicentrarchus.labrax
+#Larimichthys.crocea - Yellow croaker
+#Lates.calcarifer - Asian seabass
+#Gadus.morhua - cod
+#Tetraodon.nigroviridis - pufferfish
+#Cynoglossus.semilaevis - sole fish
+Scophthalmus.maximus
+#Oreochromis.niloticus - Tilapia
+Oryzias.latipes
+Danio.rerio
+#Cyprinus.carpio.carpio - AQUAFAANG
+#Carassius.auratus - goldfish
+#Sinocyclocheilus.grahami - carp
+#Astyanax.mexicanus - cavefish
+#Hippocampus.comes - Seahorse
+#Cyclopterus.lumpus - lumpfish
+#Sander.lucioperca - zander
+#Scleropages.formosus - osteoglossomorph
+#Paramormyrops.kingsleyae - osteoglossomorph
+Lepisosteus.oculatus
+Mus.musculus
+#Rattus.norvegicus - brown rat
+Homo.sapiens
+#Sus.scrofa - boar
+#Bison.bison.bison - bison
+#Bos.indicus.hybrid - cattle
+#Bos.taurus - cattle
+#Bos.mutus - cattle
+#Bos.grunniens - cattle
+#Gallus.gallus - Chicken
+#Meleagris.gallopavo - Turkey
+#Coturnix.japonica - Quail
+#Xenopus.tropicalis - Frog
+#Equus.caballus - horse
+#Equus.asinus.asinus - donkey
+#Capra.hircus - goat
+#Ovis.aries.rambouillet - sheep
+#Latimeria.chalumnae 

@@ -11,6 +11,5 @@ The analysis scripts are organized into sub-directories, with each major section
 ```
 .
 ├── README.md
-├── data/
-│   ├── processed/
+├── homology-prediction/    # Scripts for identifying ohnologs and orthologs
 ```
