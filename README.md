@@ -1,6 +1,6 @@
 # AQUA-FAANG-salmonids
 
-This repository contains the analysis scripts used for the manuscript titled "Regulatory evolution during rediploidization in salmonid fish."
+This repository contains the analysis scripts used for the manuscript titled "Salmonids reveal principles of regulatory evolution following autotetraploidization"
 
 The study presents large-scale regulatory omics datasets (RNA-seq, ATAC-seq, ChIP-seq) in Atlantic salmon and rainbow trout, spanning embryonic development (DevMap) and adult tissues (BodyMap), to investigate the evolution of gene expression and regulatory elements following the salmonid-specific Whole Genome Duplication (4R autotetraploidization).
 
