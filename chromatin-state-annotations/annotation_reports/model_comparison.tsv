@@ -1,0 +1,16 @@
+annotation	colour	label	AS_DM_m10	AS_DM_m11	AS_DM_m12	AS_DM_m13	AS_DM_m14	AS_DM_m15	RT_DM_m10	RT_DM_m11	RT_DM_m12	RT_DM_m13	RT_DM_m14	RT_DM_m15	AS_BM_m10	AS_BM_m11	AS_BM_m12	AS_BM_m13	AS_BM_m14	AS_BM_m15	RT_BM_m10	RT_BM_m11	RT_BM_m12	RT_BM_m13	RT_BM_m14	RT_BM_m15
+Ann1	#EA3624	active TSS	9	9	9	13	11	11	3	6	6	8	1	15	8	3	3	9	5	8	6	5	11	3	14	13
+Ann2	#EB5528	flanking active TSS	NA	11	10	10	14	15	5	4	7	6	5	11	9	4	4	10	6	9	5	4	10	2	13	14
+Ann3	#EB5528	flanking TSS downstream	10	10	11	11	8	8	NA	NA	4	10	6	10	7	8	9	6	10	5	10	8	6	8	11	1
+Ann4	#EB5528	flanking region	NA	NA	NA	9	10	10	NA	NA	NA	7	2	14	NA	NA	NA	NA	NA	11	NA	NA	2	5	2	10
+Ann5	#BF6360	bivalent/poised TSS	3	3	3	3	3	3	10	11	12	1	12	3	NA	NA	NA	NA	14	15	NA	NA	NA	NA	4	6
+Ann6	#F6C563	active enhancer cat 1	6	6	6	6	6	14	7	1	1	13	9	6	6	7	7	1	3	4	NA	NA	NA	7	10	2
+Ann7	#F6C563	active enhancer cat 2	7	7	7	7	13	13	1	8	8	5	4	12	4	6	6	4	2	1	9	1	7	6	9	3
+Ann9	#FFFC53	primed enhancer 1	4	4	4	4	4	4	6	3	3	11	11	4	3	9	10	5	11	12	NA	7	5	9	NA	11
+Ann8	#FFFC53	primed enhancer 2	NA	NA	NA	NA	NA	6	8	2	2	12	10	5	NA	NA	NA	7	9	6	3	9	NA	NA	1	12
+Ann10	#80CBAC	ZNF genes and repeats	NA	NA	12	12	9	9	4	5	5	9	7	9	10	1	1	11	7	10	4	6	12	1	12	15
+Ann11	#808080	repressed polycomb	1	1	1	1	1	1	NA	10	11	2	13	2	1	11	12	12	13	14	2	10	3	11	3	9
+Ann12	#FFFFFF	accessible chromatin	8	8	8	8	12	12	2	7	9	4	3	13	5	5	5	3	1	2	8	2	8	4	7	5
+Ann13	#893DF6	Unknown 1	NA	NA	NA	NA	7	7	NA	NA	NA	NA	8	7	NA	NA	8	2	4	3	7	3	4	13	5	8
+Ann14	#FF40FF	Unknown 2	5	5	5	5	5	5	NA	NA	NA	NA	NA	8	NA	2	2	8	8	7	NA	NA	9	12	1	4
+Ann15	#000000	blacklist	2	2	2	2	2	2	9	9	10	3	14	1	2	10	11	13	12	13	1	11	1	10	6	7

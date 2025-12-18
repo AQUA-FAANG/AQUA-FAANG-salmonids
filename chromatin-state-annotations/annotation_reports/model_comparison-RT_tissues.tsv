@@ -1,0 +1,15 @@
+annotation	colour	label	state	RT_Brain_m10	RT_Brain_m11	RT_Brain_m12	RT_Brain_m13	RT_Liver_m10	RT_Liver_m11	RT_Liver_m12	RT_Liver_m13	RT_Muscle_m10	RT_Muscle_m11	RT_Muscle_m12	RT_Muscle_m13
+Ann1	#EA3624	Active TSS	1	1	1	12	13	7	6	11	3	7	6	6	6
+Ann2	#EB5528	Flanking upstream	2	2	2	11	12	5	4	10	2	NA	NA	NA	NA
+Ann3	#EB5528	Flanking downstream	3	7	7	9	10	6	5	12	1	NA	NA	NA	NA
+Ann4	#BF6360	Bivalent	4	8	8	10	11	10	10	2	10	9	2	2	3
+Ann5	#F6C563	Active  enhancer 1	5	5	5	6	7	2	1	6	7	NA	NA	NA	NA
+Ann6	#F6C563	Active enchancer 2	6	4	4	5	6	NA	NA	NA	8	2	11	11	13
+Ann7	#FFFC53	Genic enhancer	7	6	6	7	9	1	11	1	9	1	4	12	12
+Ann9	#80CBAC	ZNF genes and repeats	8	NA	NA	NA	NA	NA	NA	NA	NA	NA	NA	3	5
+Ann8	#808080	Repressed polycomb	9	9	9	1	1	NA	9	4	12	10	1	1	1
+Ann10	#76D6FF	Accessible chromatin	10	3	3	4	5	4	3	9	4	4	9	8	8
+Ann11	#C0C0C0	Unknown 1	11	NA	NA	8	4	8	7	5	13	6	7	7	9
+Ann12	#C0C0C0	Unknown 2	12	NA	NA	NA	8	NA	NA	8	5	3	10	10	10
+Ann13	#C0C0C0	Unknown 3	13	NA	NA	NA	NA	NA	NA	NA	NA	NA	NA	NA	11
+Ann14	#FFFFFF	Quiescent	14	10	10&11	2&3	2&3	3&9	2&8	3&7	6&11	5&8	3&5&8	4&5&9	2&4&7

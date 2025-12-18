@@ -1,0 +1,15 @@
+annotation	colour	AS_DM_m12	RT_DM_m12	AS_BM_m12	RT_BM_m10_Brain	RT_BM_m10_Liver	RT_BM_m10_Muscle
+Active TSS	#BF2026	9	6	3	1	7	7
+Flanking upstream	#E81E25	10	7	4	2	5	6
+Flanking downstream	#E81E25	11	4	2	7	6	NA
+Bivalent	#9C247F	3	12	NA	NA	NA	NA
+Active enhancer	#F99B1F	6	1	7	5	2	2
+Primed enhancer	#FFD078	7	8	6	4	NA	NA
+Poised enhancer 1	#F9E700	4	3	10	6	1	1
+Poised enhancer 2	#F9F291	NA	NA	9	NA	NA	NA
+ZNF genes and repeats	#50BE96	12	5	1	8	NA	NA
+Repressed polycomb	#006367	1	11	12	9	10	10
+Accessible chromatin	#7CD3F6	8	9	5	3	4	4
+Unknown 1	#C0C0C0	5	2	8	NA	8	3
+Unknown 2	#C0C0C0	NA	NA	NA	NA	NA	9
+Quiescent	#FFFFFF	2	10	11	10	3&9	5&8

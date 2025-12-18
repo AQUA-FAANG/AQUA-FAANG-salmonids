@@ -1,0 +1,284 @@
+---
+title: "AQUA-FAANG ChromHMM state annotations"
+author: "MO & Gareth"
+date: "25/5/2023"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+*ChromHMM models:*
+- DevMap  
+  - 12 state model for Atlantic salmon
+  - 12 state model for Rainbow trout
+- BodyMap  
+  - 12 state model for Atlantic salmon  
+  - 10 state models for Rainbow trout brain, liver, muscle  
+
+```{r setup, message=FALSE, echo=FALSE, warning=FALSE}
+knitr::opts_chunk$set(
+	echo = FALSE,
+	message = FALSE,
+	warning = FALSE
+)
+
+library(tidyverse)
+theme_set(theme_light())
+```
+
+```{r}
+results <- c(
+  "/mnt/project/Aqua-Faang/chromatin_states/AtlanticSalmon/BodyMap/models",
+  "/mnt/project/Aqua-Faang/chromatin_states/AtlanticSalmon/DevMap/models",
+  "/mnt/project/Aqua-Faang/chromatin_states/RainbowTrout/BodyMap/Brain/models",
+  "/mnt/project/Aqua-Faang/chromatin_states/RainbowTrout/BodyMap/Liver/models",
+  "/mnt/project/Aqua-Faang/chromatin_states/RainbowTrout/BodyMap/Muscle/models",
+  "/mnt/project/Aqua-Faang/chromatin_states/RainbowTrout/DevMap/models"
+  )
+```
+
+```{r}
+emissions <- list.files(results, "emissions_.*.txt", recursive = TRUE, full.names = TRUE) %>%
+  lapply(., function(file){ 
+    read_tsv(file, show_col_types = FALSE) %>% 
+      mutate(
+        species = ifelse(grepl("RainbowTrout", file), "Rainbow", "Atlantic"),
+        map = ifelse(grepl("DevMap", file), "DevMap", "BodyMap"),
+        tissue = ifelse(grepl("RainbowTrout/BodyMap", file), sub(".*/", "",sub("/models.*", "", file)), ""),
+        model = sub(".*/model_(\\d+)/.*", "m\\1", file),
+        `State (Emission order)` = paste0("s", `State (Emission order)`)
+        ) %>%
+      dplyr::rename(state = `State (Emission order)`)
+  }) %>%
+  bind_rows()
+```
+
+```{r}
+TSS_neighborhood <- list.files(results, "TSS_neighborhood.txt", recursive = TRUE, full.names = TRUE) %>%
+  lapply(., function(file){ 
+    read_tsv(file, show_col_types = FALSE) %>%
+      gather(distance, value, -1) %>%
+      transmute(
+        species = ifelse(grepl("RainbowTrout", file), "Rainbow", "Atlantic"),
+        map = ifelse(grepl("DevMap", file), "DevMap", "BodyMap"),
+        tissue = ifelse(grepl("RainbowTrout/BodyMap", file), sub(".*/", "",sub("/models.*", "", file)), ""),
+        model = sub(".*/model_(\\d+)/.*", "m\\1", file),
+        group = sub("_\\d+_TSS_neighborhood.txt", "", basename(file)),
+        state = paste0("s", `State (Emission order)`),
+        distance,
+        value
+      )
+    }) %>%
+  bind_rows()
+```
+
+```{r}
+assay_order <- c("ATAC", "H3K27ac", "H3K4me1", "H3K4me3", "H3K27me3")
+
+BM_stages <- c("Immature_Male", "Immature_Female", "Mature_Male", "Mature_Female")
+
+group_order <- rev(c(
+  "LateBlastulation", 
+  "MidGastrulation", 
+  "EarlySomitogenesis",
+  "MidSomitogenesis",
+  "LateSomitogenesis",
+  paste0("Brain_", BM_stages),
+  paste0("Gonad_", BM_stages),
+  paste0("Liver_", BM_stages),
+  paste0("Muscle_", BM_stages)
+))
+```
+
+```{r}
+curated_annotations <- read_tsv("state_annotations.tsv") %>%
+  setNames(sub("AS", "Atlantic", names(.))) %>%
+  setNames(sub("RT", "Rainbow", names(.))) %>%
+  setNames(sub("BM", "BodyMap", names(.))) %>%
+  setNames(sub("DM", "DevMap", names(.))) %>%
+  mutate(annotation = factor(annotation, levels = rev(annotation)))
+
+annotation_colour <- setNames(curated_annotations$colour, curated_annotations$annotation)
+
+curated_annotations <- curated_annotations %>%
+      gather(model, state, contains("_m")) %>%
+      separate_rows(state, sep = "&") %>%
+      filter(!is.na(state)) %>%
+      mutate(state = paste0("s", state)) %>%
+      separate(model, into = c("species", "map", "model", "tissue")) %>%
+      mutate(tissue = ifelse(is.na(tissue), "", tissue))
+```
+
+# Model emissions
+
+```{r}
+emissions_ordered <- emissions %>%
+  gather(assay, emission, 2:6) %>%
+  right_join(curated_annotations, by = c("state", "map", "model", "species", "tissue")) %>%
+  group_by(species, map, tissue, model, assay, annotation) %>%
+  mutate(emission = mean(emission)) %>%
+  select(-state) %>%
+  distinct() %>%
+  mutate(assay = factor(assay, levels = assay_order),
+         map = factor(map, levels = c("DevMap", "BodyMap")),
+         species = factor(species, levels = c("Atlantic", "Rainbow")))
+```
+
+```{r fig.height=4, fig.width=8}
+emissions_ordered %>%
+  ggplot(aes(x = assay, y = annotation, fill = emission)) +
+  geom_tile(colour = "grey60") +
+  scale_fill_gradient(low = "white", high = "#08519c") +
+  facet_grid(.~map+species+tissue) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+        panel.grid = element_blank())
+```
+
+# Genomic feature overlap
+
+```{r}
+overlap <- list.files(results, "overlap.txt", recursive = TRUE, full.names = TRUE) %>%
+  lapply(., function(file){ 
+    read_tsv(file, show_col_types = FALSE) %>%
+      gather(feature, value, -1) %>%
+      transmute(
+        species = ifelse(grepl("RainbowTrout", file), "Rainbow", "Atlantic"),
+        map = ifelse(grepl("DevMap", file), "DevMap", "BodyMap"),
+        tissue = ifelse(grepl("RainbowTrout/BodyMap", file), sub(".*/", "",sub("/models.*", "", file)), ""),
+        model = sub(".*/model_(\\d+)/.*", "m\\1", file),
+        group = sub("_\\d+_overlap.txt", "", basename(file)),
+        state = paste0("s", `State (Emission order)`),
+        feature = factor(sub(".tsv", "", feature), levels = c("Genome %", "TSS2kb", "TSS", "gene", "exon", "TES", "TES2kb")), 
+        value
+      )
+    }) %>%
+  bind_rows()
+```
+
+```{r}
+overlap_ordered <- overlap %>%
+  right_join(curated_annotations, by = c("state", "map", "model", "tissue", "species")) %>%
+  filter(state != "sBase") %>%
+  group_by(species, map, feature, group, model, tissue, annotation) %>%
+  mutate(value = sum(value),
+         species = factor(species, levels = c("Atlantic", "Rainbow")),
+         map = factor(map, levels = c("DevMap", "BodyMap")),
+         group = factor(group, levels = rev(group_order))) %>%
+  select(-state) %>%
+  distinct()
+```
+
+```{r}
+plot_overlap <- function (data) {
+  data %>%
+  ggplot(aes(x = group, y = annotation, fill = value)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "white", mid = "#4292c6", high = "#08519c", midpoint = 10) +
+  facet_grid(map+species~feature, scales = "free_x") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        panel.grid.minor = element_blank())
+}
+```
+
+
+```{r fig.width=8, fig.height=4}
+overlap_ordered %>%
+  filter(species == "Atlantic", map == "DevMap", feature != "Genome %") %>%
+  plot_overlap
+
+overlap_ordered %>%
+  filter(species == "Rainbow", map == "DevMap", feature != "Genome %") %>%
+  plot_overlap
+```
+
+
+```{r fig.width=16, fig.height=4}
+overlap_ordered %>%
+  filter(species == "Atlantic", map == "BodyMap", feature != "Genome %") %>%
+  plot_overlap
+
+overlap_ordered %>%
+  filter(species == "Rainbow", map == "BodyMap", feature != "Genome %") %>%
+  plot_overlap
+```
+
+# Genome coverage
+
+```{r fig.width=12, fig.height=6}
+overlap_ordered %>%
+    mutate(group = factor(group, levels = group_order)) %>%
+  filter(feature == "Genome %") %>%
+  ggplot(aes(x = group, y = value, group = annotation, fill = annotation)) +
+  geom_col(position = "stack", colour = "black") +
+  scale_fill_manual(values = annotation_colour, limits = names(annotation_colour), na.value = "green") +
+  coord_flip() +
+  facet_grid(map+species~., scales = "free", space = "free_y")
+```
+
+```{r fig.width=12, fig.height=12}
+overlap_ordered %>%
+    mutate(group = factor(group, levels = group_order)) %>%
+  filter(feature == "Genome %", annotation != "Quiescent") %>%
+  ggplot(aes(x = group, y = value, group = annotation, fill = annotation)) +
+  geom_col(position = "stack", colour = "black") +
+  scale_fill_manual(values = annotation_colour, limits = names(annotation_colour), na.value = "green") +
+  coord_flip() +
+  facet_grid(map+species~., scales = "free_y", space = "free") +
+  ggtitle("No quiescent")
+```
+
+# Alluvial plots
+
+```{r}
+AtlanticSalmon_bins <- read_tsv("binned_states/AtlanticSalmon_bins.tsv")
+RainbowTrout_bins <- read_tsv("binned_states/RainbowTrout_bins.tsv")
+```
+
+```{r}
+library(ggalluvial)
+
+data <- AtlanticSalmon_bins %>%
+	select(contains("_Mature_Female")) %>%
+	filter(if_any(everything(), ~ . != "Quiesent")) %>%
+	filter(if_all(everything(), ~ !is.na(.))) %>%
+	mutate(colnames = paste(colnames(.), collapse = ":")) %>%
+	unite(!colnames, col = "combo", sep = ":") %>%
+	count(combo, colnames) %>%
+	filter(n > 1000) %>%
+	separate(combo, into = unlist(str_split(gsub("AtlanticSalmon_", "", .$colnames[1]), pattern = ":")), sep = ":") %>%
+	select(-colnames)
+```
+
+```{r}
+data %>%
+  arrange(desc(n)) %>%
+  slice(-1) %>%
+	ggplot(aes(
+		y = n,
+		axis1 = Brain_Mature_Female,
+		axis2 = Gonad_Mature_Female,
+		axis3 = Liver_Mature_Female,
+		axis4 = Muscle_Mature_Female
+	)) +
+	geom_alluvium(aes(fill = Brain_Mature_Female), width = 0, reverse = FALSE) +
+  geom_stratum(aes(fill = Brain_Mature_Female), width = 1/8, reverse = FALSE) +
+  scale_fill_manual(values = annotation_colour, limits = names(annotation_colour), na.value = "green", name = "Chromatin state") +
+	theme_gray()
+```
+
+```{r fig.height=8}
+data %>%
+  arrange(desc(n)) %>%
+  slice(-1) %>%
+  rowid_to_column("id") %>%
+  gather(group, state, 2:(ncol(.)-1)) %>%
+	ggplot(aes(x = group, y = n, stratum = state, alluvium = id, fill = state, label = state)) +
+	geom_flow() +
+  geom_stratum(alpha = .5) +
+  scale_fill_manual(values = annotation_colour, limits = names(annotation_colour), na.value = "green", name = "Chromatin state") +
+  theme_gray() +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+

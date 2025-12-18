@@ -1,0 +1,290 @@
+---
+title: "Aqua-FAANG salmonids ChromHMM model comparison"
+author: "Gareth Gillard"
+date: "2/12/2023"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+```{r setup, message=FALSE, echo=FALSE, warning=FALSE}
+knitr::opts_chunk$set(
+	echo = FALSE,
+	message = FALSE,
+	warning = FALSE
+)
+
+library(tidyverse)
+
+theme_set(theme_light())
+```
+
+```{r}
+results <- c(
+  "/mnt/project/Aqua-Faang/chromatin_states/RainbowTrout/BodyMap/Brain/models",
+  "/mnt/project/Aqua-Faang/chromatin_states/RainbowTrout/BodyMap/Liver/models",
+  "/mnt/project/Aqua-Faang/chromatin_states/RainbowTrout/BodyMap/Muscle/models"
+  )
+```
+
+```{r}
+emissions <- list.files(results, "emissions_.*.txt", recursive = TRUE, full.names = TRUE) %>%
+  lapply(., function(file){ 
+    read_tsv(file, show_col_types = FALSE) %>% 
+      mutate(
+        species = ifelse(grepl("RainbowTrout", file), "Rainbow", "Atlantic"),
+        map = ifelse(grepl("DevMap", file), "DevMap", "BodyMap"),
+        tissue = sub(".*/", "",sub("/models.*", "", file)),
+             model = sub(".*/model_(\\d+)/.*", "m\\1", file),
+             `State (Emission order)` = paste0("s", `State (Emission order)`)) %>%
+      rename(state = `State (Emission order)`)
+    }) %>%
+  bind_rows()
+```
+
+```{r}
+transitions <- list.files(results, "transitions_.*.txt", recursive = TRUE, full.names = TRUE) %>%
+  lapply(., function(file){ 
+    read_tsv(file, show_col_types = FALSE) %>%
+      gather(state_to, value, -1) %>%
+      transmute(
+        species = ifelse(grepl("RainbowTrout", file), "Rainbow", "Atlantic"),
+        map = ifelse(grepl("DevMap", file), "DevMap", "BodyMap"),
+        tissue = sub(".*/", "",sub("/models.*", "", file)),
+        model = sub(".*/model_(\\d+)/.*", "m\\1", file),
+        state_from = paste0("s", `State (from\\to) (Emission order)`),
+        state_to = paste0("s", state_to), 
+        value
+      )
+    }) %>%
+  bind_rows()
+```
+
+```{r}
+overlap <- list.files(results, "overlap.txt", recursive = TRUE, full.names = TRUE) %>%
+  lapply(., function(file){ 
+    read_tsv(file, show_col_types = FALSE) %>%
+      gather(feature, value, -1) %>%
+      transmute(
+        species = ifelse(grepl("RainbowTrout", file), "Rainbow", "Atlantic"),
+        map = ifelse(grepl("DevMap", file), "DevMap", "BodyMap"),
+        tissue = sub(".*/", "",sub("/models.*", "", file)),
+        model = sub(".*/model_(\\d+)/.*", "m\\1", file),
+        group = sub("_\\d+_overlap.txt", "", basename(file)),
+        state = paste0("s", `State (Emission order)`),
+        feature = factor(sub(".tsv", "", feature), levels = c("Genome %", "TSS2kb", "TSS", "gene", "exon", "TES", "TES2kb")), 
+        value
+      )
+    }) %>%
+  bind_rows()
+```
+
+```{r}
+TSS_neighborhood <- list.files(results, "TSS_neighborhood.txt", recursive = TRUE, full.names = TRUE) %>%
+  lapply(., function(file){ 
+    read_tsv(file, show_col_types = FALSE) %>%
+      gather(distance, value, -1) %>%
+      transmute(
+        species = ifelse(grepl("RainbowTrout", file), "Rainbow", "Atlantic"),
+        map = ifelse(grepl("DevMap", file), "DevMap", "BodyMap"),
+        tissue = sub(".*/", "",sub("/models.*", "", file)),
+        model = sub(".*/model_(\\d+)/.*", "m\\1", file),
+        group = sub("_\\d+_TSS_neighborhood.txt", "", basename(file)),
+        state = paste0("s", `State (Emission order)`),
+        distance,
+        value
+      )
+    }) %>%
+  bind_rows()
+```
+
+```{r}
+TES_neighborhood <- list.files(results, "TES_neighborhood.txt", recursive = TRUE, full.names = TRUE) %>%
+  lapply(., function(file){ 
+    read_tsv(file, show_col_types = FALSE) %>%
+      gather(distance, value, -1) %>%
+      transmute(
+        species = ifelse(grepl("RainbowTrout", file), "Rainbow", "Atlantic"),
+        map = ifelse(grepl("DevMap", file), "DevMap", "BodyMap"),
+        tissue = sub(".*/", "",sub("/models.*", "", file)),
+        model = sub(".*/model_(\\d+)/.*", "m\\1", file),
+        group = sub("_\\d+_TES_neighborhood.txt", "", basename(file)),
+        state = paste0("s", `State (Emission order)`),
+        distance,
+        value
+      )
+    }) %>%
+  bind_rows()
+```
+
+```{r}
+assay_order <- c("ATAC", "H3K27ac", "H3K4me1", "H3K4me3", "H3K27me3")
+```
+
+```{r}
+state_annotations <- read_tsv("model_comparison-RT_tissues.tsv") %>%
+  setNames(sub("RT", "Rainbow", names(.))) %>%
+  mutate(annotation = factor(annotation, levels = rev(annotation)),
+         label = factor(label, levels = rev(label)))
+```
+
+```{r}
+emissions_ordered <- emissions %>%
+  gather(assay, emission, 2:6) %>%
+  mutate(assay = factor(assay, levels = assay_order),
+         state = factor(state, levels = paste0("s", 1:15))) %>%
+  left_join(
+    state_annotations %>%
+      gather(model, state, contains("_m")) %>%
+      mutate(state = paste0("s", state)) %>%
+      separate(model, into = c("species", "tissue", "model")), 
+    by = c("state", "model", "tissue", "species")
+  )
+```
+
+```{r}
+transitions_ordered <- transitions %>%
+  left_join(
+    state_annotations %>%
+      gather(model, state, contains("_m")) %>%
+       mutate(state = paste0("s", state)) %>%
+      transmute(model, state, annotation_to = annotation) %>%
+      separate(model, into = c("species", "map", "model")), 
+    by = c("state_to" = "state", "map", "model", "species")
+  ) %>%
+  left_join(
+    state_annotations %>%
+      gather(model, state, contains("_m")) %>%
+       mutate(state = paste0("s", state)) %>%
+      transmute(model, state, annotation_from = annotation) %>%
+      separate(model, into = c("species", "map", "model")), 
+    by = c("state_from" = "state", "map", "model", "species")
+  )
+```
+
+```{r}
+overlap_ordered <- overlap %>%
+  left_join(
+    state_annotations %>%
+      gather(model, state, contains("_m")) %>%
+       mutate(state = paste0("s", state)) %>%
+      separate(model, into = c("species", "tissue", "model")), 
+    by = c("state", "tissue", "model", "species")
+  )
+```
+
+```{r}
+TSS_neighborhood_ordered <- TSS_neighborhood %>% 
+  left_join(
+    state_annotations %>%
+      gather(model, state, contains("_m")) %>%
+       mutate(state = paste0("s", state)) %>%
+      separate(model, into = c("species", "map", "model")), 
+    by = c("state", "map", "model", "species")
+  )
+```
+
+```{r}
+TES_neighborhood_ordered <- TES_neighborhood %>% 
+  left_join(
+    state_annotations %>%
+      gather(model, state, contains("_m")) %>%
+       mutate(state = paste0("s", state)) %>%
+      separate(model, into = c("species", "map", "model")), 
+    by = c("state", "map", "model", "species")
+  )
+```
+
+# Emissions
+
+## BodyMap
+
+
+```{r fig.height=10, fig.width=8}
+emissions_ordered %>%
+  filter(species == "Rainbow", map == "BodyMap") %>%
+  ggplot(aes(x = assay, y = label, fill = emission, label = sub("s", "", state))) +
+  geom_tile(colour = "grey60") +
+  geom_text(size = 2, colour = "grey60") +
+  scale_fill_gradient(low = "white", high = "#08519c") +
+  facet_grid(species+tissue~model) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        panel.grid = element_blank())
+```
+
+# Transitions
+
+```{r fig.height=6, fig.width=8}
+transitions_ordered %>%
+  filter(species == "Rainbow", map == "BodyMap") %>%
+  ggplot(aes(x = annotation_to, y = annotation_from, fill = value)) +
+  geom_tile() +
+  scale_fill_gradient(low = "white", high = "#08519c") +
+  facet_grid(species+tissue~model) +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        panel.grid.minor = element_blank())
+```
+
+# TSS neighborhood
+
+```{r fig.width=12, fig.height=22}
+TSS_neighborhood_ordered %>%
+  mutate(distance = as.numeric(distance)) %>%
+  filter(species == "Rainbow", map == "BodyMap") %>%
+  ggplot(aes(x = distance, y = state, fill = value)) +
+  geom_tile() +
+  scale_fill_gradient(low = "white", high = "#08519c") +
+  facet_grid(group~model) +
+  ggtitle("Rainbow trout BodyMap TSS neighborhood") +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        panel.grid.minor = element_blank())
+```
+
+# TES neighborhood
+
+```{r fig.width=12, fig.height=22}
+TES_neighborhood_ordered %>%
+  mutate(distance = as.numeric(distance)) %>%
+  filter(species == "Rainbow", map == "BodyMap") %>%
+  ggplot(aes(x = distance, y = label, fill = value)) +
+  geom_tile() +
+  scale_fill_gradient(low = "white", high = "#08519c") +
+  facet_grid(group~model) +
+  ggtitle("Rainbow trout BodyMap TES neighborhood") +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        panel.grid.minor = element_blank())
+```
+
+# Overlap
+
+```{r fig.width=8, fig.height=22}
+overlap_ordered %>%
+  filter(species == "Rainbow", map == "BodyMap") %>%
+  filter(feature != "Genome %", state != "sBase") %>%
+  mutate(state = factor(state, levels = c(paste0("s",1:15), "sBase"))) %>%
+  ggplot(aes(x = feature, y = state, fill = value)) +
+  geom_tile() +
+  scale_fill_gradient(low = "white", high = "#08519c") +
+  facet_grid(group~model) +
+  ggtitle("RainbowTrout BodyMap state overlap") +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        panel.grid.minor = element_blank())
+```
+
+# Genome coverage
+
+```{r fig.width=20, fig.height=10}
+overlap_ordered %>%
+  filter(feature == "Genome %", state != "sBase",
+         species == "Rainbow", map == "BodyMap") %>%
+  ggplot(aes(x = group, y = value, group = annotation, fill = colour)) +
+  geom_col(position = "stack", colour = "black") +
+  scale_fill_identity() +
+  coord_flip() +
+  facet_grid(species+tissue+model~., scales = "free")
+```
