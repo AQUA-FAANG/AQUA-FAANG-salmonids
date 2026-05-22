@@ -1,0 +1,147 @@
+---
+title: "ATAC SOMs: clustering of accessibility profiles"
+author: "AQUA-FAANG salmonid analysis"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: show
+    toc: true
+    toc_float: true
+    cache: true
+---
+
+
+```{r knitr_setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE,
+                      cache = TRUE)
+```
+
+## Purpose
+
+Fit 5 x 5 hexagonal self-organising maps to the four context-specific
+ATAC matrices produced by `01_atac_loading.Rmd` (DevMap salmon, BodyMap
+salmon, DevMap trout, BodyMap trout), derive PAM super-clusters on the
+prototype codes, build the ribbon-plot summary frames used in Figure 2,
+and reduce every matrix to two dimensions with uwot::umap. Outputs are
+written to `data/derived/atac_soms.RData`.
+
+```{r source_setup}
+source("99_helpers.R")
+if (!exists("paths")) knitr::knit("00_setup.Rmd", output = tempfile())
+load(file.path(paths$legacy$derived_dir, "atac_matrices_salmon.RData"))
+load(file.path(paths$legacy$derived_dir, "atac_matrices_trout.RData"))
+```
+
+## Seed lock
+
+Both the somInit initialisation and the kohonen::som training are seeded
+with 12345 to match the manuscript figures. The seed is applied inside
+`fit_atac_som`; this chunk documents the choice.
+
+```{r seed_lock_atac}
+atac_seed <- 12345
+atac_seed
+```
+
+## SOM fits
+
+Each fit uses the same 5 x 5 hexagonal grid with the legacy somInit
+initialisation followed by kohonen::som.
+
+```{r fit_devmap_som_salmon, cache = TRUE}
+devMap_atac_som_salmon <- fit_atac_som(devMap_in_mat_salmon,
+                                       xdim = 5, ydim = 5,
+                                       seed = atac_seed)
+```
+
+```{r fit_devmap_som_trout, cache = TRUE}
+devMap_atac_som_trout <- fit_atac_som(devMap_in_mat_trout,
+                                      xdim = 5, ydim = 5,
+                                      seed = atac_seed)
+```
+
+```{r fit_bodymap_som_salmon, cache = TRUE}
+bodyMap_atac_som_salmon <- fit_atac_som(bodyMap_in_mat_salmon,
+                                        xdim = 5, ydim = 5,
+                                        seed = atac_seed)
+```
+
+```{r fit_bodymap_som_trout, cache = TRUE}
+bodyMap_atac_som_trout <- fit_atac_som(bodyMap_in_mat_trout,
+                                       xdim = 5, ydim = 5,
+                                       seed = atac_seed)
+```
+
+## PAM super-clusters
+
+Each SOM's 25 prototype codes are summarised into four super-clusters with
+PAM, giving the coarse pattern groupings that label the dynamic vs.
+constitutive units.
+
+```{r superclasses_pam}
+superclasses_devmap_salmon  <- pam_superclusters(devMap_atac_som_salmon, k = 4)
+superclasses_devmap_trout   <- pam_superclusters(devMap_atac_som_trout,  k = 4)
+superclasses_bodymap_salmon <- pam_superclusters(bodyMap_atac_som_salmon, k = 4)
+superclasses_bodymap_trout  <- pam_superclusters(bodyMap_atac_som_trout,  k = 4)
+```
+
+## Label units and ribbon summary frames
+
+`get_som` rebuilds, for each SOM, the per-unit label vector, the long tidy
+frame and the per-unit mean / SD table used by the ribbon plots and by
+`03_figure2_atac.Rmd`.
+
+```{r build_label_units}
+sum_devmap_salmon  <- get_som(devMap_in_mat_salmon,  5, 5, devMap_atac_som_salmon)
+sum_devmap_trout   <- get_som(devMap_in_mat_trout,   5, 5, devMap_atac_som_trout)
+sum_bodymap_salmon <- get_som(bodyMap_in_mat_salmon, 5, 5, bodyMap_atac_som_salmon)
+sum_bodymap_trout  <- get_som(bodyMap_in_mat_trout,  5, 5, bodyMap_atac_som_trout)
+```
+
+## Ribbon panels
+
+The four facet_wrap ribbon panels (mean +/- 2 SD per SOM unit across
+samples) for the DevMap and BodyMap contexts of each species.
+
+```{r ribbon_panels}
+ribbon_devmap_salmon  <- make_ribbon_panel(sum_devmap_salmon$tmp_df,
+                                           sum_devmap_salmon$label_unit)
+ribbon_devmap_trout   <- make_ribbon_panel(sum_devmap_trout$tmp_df,
+                                           sum_devmap_trout$label_unit)
+ribbon_bodymap_salmon <- make_ribbon_panel(sum_bodymap_salmon$tmp_df,
+                                           sum_bodymap_salmon$label_unit)
+ribbon_bodymap_trout  <- make_ribbon_panel(sum_bodymap_trout$tmp_df,
+                                           sum_bodymap_trout$label_unit)
+```
+
+## UMAP embeddings
+
+`uwot::umap` reduces each scaled fold-enrichment matrix to two dimensions
+for the SOM-coloured scatterplots in Figure 2.
+
+```{r umap_atac, cache = TRUE}
+set.seed(atac_seed)
+devMap_umap_salmon  <- uwot::umap(devMap_in_mat_salmon)
+set.seed(atac_seed)
+devMap_umap_trout   <- uwot::umap(devMap_in_mat_trout)
+set.seed(atac_seed)
+bodyMap_umap_salmon <- uwot::umap(bodyMap_in_mat_salmon)
+set.seed(atac_seed)
+bodyMap_umap_trout  <- uwot::umap(bodyMap_in_mat_trout)
+```
+
+## Persist SOM objects
+
+```{r save_atac_som_objects}
+save(devMap_atac_som_salmon,  devMap_atac_som_trout,
+     bodyMap_atac_som_salmon, bodyMap_atac_som_trout,
+     superclasses_devmap_salmon,  superclasses_devmap_trout,
+     superclasses_bodymap_salmon, superclasses_bodymap_trout,
+     sum_devmap_salmon,  sum_devmap_trout,
+     sum_bodymap_salmon, sum_bodymap_trout,
+     ribbon_devmap_salmon,  ribbon_devmap_trout,
+     ribbon_bodymap_salmon, ribbon_bodymap_trout,
+     devMap_umap_salmon,  devMap_umap_trout,
+     bodyMap_umap_salmon, bodyMap_umap_trout,
+     file = file.path(paths$legacy$derived_dir, "atac_soms.RData"))
+```

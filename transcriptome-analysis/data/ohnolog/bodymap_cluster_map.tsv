@@ -1,0 +1,37 @@
+display_id	class_number	class_max	class_max_mean	stage_specific	constitutive	tissue_peak	category	facet_tissue
+1	6	Brain_Immature_Female	3.761	TRUE	FALSE	Brain	Tissue-specific	Brain
+2	12	Brain_Immature_Male	3.67	TRUE	FALSE	Brain	Tissue-specific	Brain
+3	11	Brain_Mature_Female	3.422	TRUE	FALSE	Brain	Tissue-specific	Brain
+4	5	Brain_Mature_Male	3.003	TRUE	FALSE	Brain	Tissue-specific	Brain
+5	15	Brain_Mature_Male	2.208	TRUE	FALSE	Brain	Tissue-specific	Brain
+6	24	Testes_Immature_Male	4.177	TRUE	FALSE	Testes	Tissue-specific	Testes
+7	18	Testes_Mature_Male	4.583	TRUE	FALSE	Testes	Tissue-specific	Testes
+8	17	Testes_Mature_Male	3.045	TRUE	FALSE	Testes	Tissue-specific	Testes
+9	30	Ova_Immature_Female	4.222	TRUE	FALSE	Ovary	Tissue-specific	Ovary
+10	36	Ova_Mature_Female	3.722	TRUE	FALSE	Ovary	Tissue-specific	Ovary
+11	35	Ova_Mature_Female	2.868	TRUE	FALSE	Ovary	Tissue-specific	Ovary
+12	2	Muscle_Immature_Female	3.028	TRUE	FALSE	Muscle	Tissue-specific	Muscle
+13	3	Muscle_Mature_Female	2.777	TRUE	FALSE	Muscle	Tissue-specific	Muscle
+14	7	Liver_Immature_Male	2.542	TRUE	FALSE	Liver	Tissue-specific	Liver
+15	13	Liver_Mature_Male	2.165	TRUE	FALSE	Liver	Tissue-specific	Liver
+16	26	HeadKidney_Mature_Female	2.216	TRUE	FALSE	Head kidney	Tissue-specific	Head kidney
+17	33	HeadKidney_Mature_Male	2.455	TRUE	FALSE	Head kidney	Tissue-specific	Head kidney
+18	31	Gill_Immature_Female	2.511	TRUE	FALSE	Gill	Tissue-specific	Gill
+19	19	SuppDistalIntestine_Immature_Female	2.862	TRUE	FALSE	Intestine	Tissue-specific	Intestine
+20	20	SuppDistalIntestine_Mature_Female	2.724	TRUE	FALSE	Intestine	Tissue-specific	Intestine
+21	4	Brain_Mature_Male	1.702	FALSE	FALSE	Brain	Multi	Brain
+22	1	Brain_Mature_Male	1.634	FALSE	FALSE	Brain	Multi	Brain
+23	29	Ova_Immature_Female	2.166	FALSE	FALSE	Ovary	Multi	Ovary
+24	23	Ova_Immature_Female	2.017	FALSE	FALSE	Ovary	Multi	Ovary
+25	34	Ova_Immature_Female	1.942	FALSE	FALSE	Ovary	Multi	Ovary
+26	28	Ova_Immature_Female	1.848	FALSE	FALSE	Ovary	Multi	Ovary
+27	10	Muscle_Mature_Female	2.126	FALSE	FALSE	Muscle	Multi	Muscle
+28	27	HeadKidney_Mature_Male	1.673	FALSE	FALSE	Head kidney	Multi	Head kidney
+29	25	Gill_Immature_Male	1.897	FALSE	FALSE	Gill	Multi	Gill
+30	32	Gill_Immature_Male	1.801	FALSE	FALSE	Gill	Multi	Gill
+31	9	SuppDistalIntestine_Immature_Male	1.889	FALSE	FALSE	Intestine	Multi	Intestine
+32	16	Brain_Mature_Female	1.491	FALSE	TRUE	Brain	Constitutive	Constitutive
+33	22	Ova_Mature_Female	1.703	FALSE	TRUE	Ovary	Constitutive	Constitutive
+34	14	Muscle_Immature_Female	1.493	FALSE	TRUE	Muscle	Constitutive	Constitutive
+35	8	Liver_Immature_Female	1.57	FALSE	TRUE	Liver	Constitutive	Constitutive
+36	21	HeadKidney_Immature_Male	1.272	FALSE	TRUE	Head kidney	Constitutive	Constitutive

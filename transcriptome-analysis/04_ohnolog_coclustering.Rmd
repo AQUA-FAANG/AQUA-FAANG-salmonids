@@ -1,0 +1,142 @@
+---
+title: "04 — Ohnolog SOM co-clustering"
+author: "AQUA-FAANG salmonid analysis"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: show
+    toc: true
+    toc_float: true
+---
+
+## Overview
+
+Per-cluster composition and per-pair co-clustering of AORe and LORe Atlantic
+salmon ohnolog pairs across the DevMap (16-unit) and BodyMap (36-unit) SOMs.
+The analysis is split into ten scripts under `scripts/`, chained through
+RData outputs in `results/ohnolog/data/` and PDF / PNG panels in
+`results/ohnolog/panels/`. Each section below sources one script; knitting
+end-to-end reproduces every data object and figure panel.
+
+```{r setup_chain, include=FALSE}
+source("R/setup.R")
+scripts_dir <- "scripts"
+# Generated intermediates, figure panels and composites for this notebook.
+for (d in c("results/ohnolog/data", "results/ohnolog/panels",
+            "results/ohnolog/composite")) {
+  dir.create(d, showWarnings = FALSE, recursive = TRUE)
+}
+```
+
+## 1. Pair-level co-clustering (03_ohnolog_som_coclustering.R)
+
+Loads the salmon SOM fits and the orthogroup table, extracts 2:2 AORe/LORe
+salmon ohnolog pairs, joins each pair to its DevMap and BodyMap SOM
+assignments, and runs a 2×2 Fisher's Exact Test on AORe vs LORe co-clustering
+rates. The trout copy-number `nOmyk` is intentionally not constrained because
+rediploidisation occurs independently in each species post-Ss4R, so the
+AORe/LORe timing of a salmon pair does not depend on how many trout copies
+survived. Writes `c1_coclustering_results.RData`.
+
+```{r run_pair_level}
+source(file.path(scripts_dir, "03_ohnolog_som_coclustering.R"))
+```
+
+## 2. Gene-level per-cluster breakdown (03b_ohnolog_som_extended.R)
+
+Complements section 1 by asking, within each SOM cluster, what fraction of
+resident ohnolog genes are AORe vs LORe, and what fraction have their
+partner also in the same cluster. Computes per-cluster Fisher's tests for
+AORe vs LORe partner-here rates (BH-adjusted, clusters with n ≥ 20), the
+chi-squared test for uniform LORe proportion, and a 4-category composition
+(Early / Late / Singleton / Other) per cluster. The composition baseline
+uses the SOM-local pool to avoid the low-expression filter artefact.
+Writes `c1_extended_results.RData`.
+
+```{r run_gene_level}
+source(file.path(scripts_dir, "03b_ohnolog_som_extended.R"))
+```
+
+## 3. Bar-chart panels (03c_ohnolog_som_figures.R)
+
+Emits six paired PDF/PNG panels per map: per-cluster co-clustering rate
+(all and no-constitutive variants), aggregated co-clustering by stage or
+tissue group, and per-cluster LORe proportion. Cluster P* (raw SOM unit 9)
+is excluded because the manuscript treats it separately. The const/noconst
+split lets the composite stage (section 9) draw from the noconst variant.
+
+```{r make_bar_panels}
+source(file.path(scripts_dir, "03c_ohnolog_som_figures.R"))
+```
+
+## 4. Sankey panels (03d_ohnolog_sankey.R)
+
+Builds the Sankey/alluvial panels showing which DevMap cluster the partner
+of a salmon ohnolog ends up in, separately for AORe (Early) and LORe (Late)
+pairs. Same const/noconst split as section 3.
+
+```{r make_sankey}
+source(file.path(scripts_dir, "03d_ohnolog_sankey.R"))
+```
+
+## 5. UpSet panels (03e_ohnolog_upset.R)
+
+UpSet plots over the set of clusters that contain at least one AORe (or
+LORe) co-clustered pair, showing the intersection structure between
+clusters. Per the UpSetR colour-passthrough bug, palette membership is
+derived from `unique(unlist(intersections))` rather than the `sets`
+parameter.
+
+```{r make_upset}
+source(file.path(scripts_dir, "03e_ohnolog_upset.R"))
+```
+
+## 6. Fold-change pattern (03f_ohnolog_fc_pattern.R)
+
+Computes the per-pair fold-change pattern over developmental stages and
+tissues for AORe vs LORe ohnologs, and writes the associated panels and
+support tables.
+
+```{r make_fc_pattern}
+source(file.path(scripts_dir, "03f_ohnolog_fc_pattern.R"))
+```
+
+## 7. Early/Late ratio panel (03g_early_late_ratio_panel.R)
+
+Per-cluster Late-to-Early co-clustering rate ratio with 95% CIs, the panel
+that recapitulates the Fig. 3 constraint pattern (ratio rises with
+developmental progression as Early ohnologs accumulate constraint).
+
+```{r make_el_ratio}
+source(file.path(scripts_dir, "03g_early_late_ratio_panel.R"))
+```
+
+## 8. LORe ratio panel (03g_lore_ratio_panel.R)
+
+Per-cluster LORe-fraction panel, paired with the Early/Late ratio in
+section 7. The two `03g_` scripts share infrastructure but write distinct
+PDF outputs.
+
+```{r make_lore_ratio}
+source(file.path(scripts_dir, "03g_lore_ratio_panel.R"))
+```
+
+## 9. Composite supplementary figures (04_composite_figures.R)
+
+Stitches the panels produced in sections 3-5 into the two supplementary
+composite figures (DevMap + BodyMap). The composite reads PNG sources
+when present because UpSetR PDFs rasterise unreliably via pdftools;
+PDFs are kept alongside for downstream LaTeX inclusion.
+
+```{r build_composites}
+source(file.path(scripts_dir, "04_composite_figures.R"))
+```
+
+## 10. Fold-change composite (04b_composite_fc_pattern.R)
+
+Final composite tying the fold-change pattern panels (section 6) into the
+matching supplementary figure.
+
+```{r build_fc_composite}
+source(file.path(scripts_dir, "04b_composite_fc_pattern.R"))
+```

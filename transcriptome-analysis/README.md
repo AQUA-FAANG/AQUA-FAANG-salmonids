@@ -1,39 +1,109 @@
-# Transcriptome analysis scripts
+# Transcriptome analysis
 
-*Summary*
+R notebooks for the bulk RNA-seq analyses in Atlantic salmon (*Salmo salar*)
+and rainbow trout (*Oncorhynchus mykiss*), covering a 14-stage developmental
+time course (DevMap) and an adult tissue panel (BodyMap, eight tissues across
+sex and sexual maturity). The pipeline merges technical replicates,
+quantile-normalises and z-scales TPM matrices, fits self-organising maps
+(4×4 hexagonal for DevMap, 6×6 for BodyMap, both species), and analyses the
+resulting clusters for GO term enrichment, salmon–trout ortholog
+co-clustering against a permutation null, and salmon ohnolog co-clustering
+stratified by rediploidization timing.
 
-Raw count files generated with the nf-core RNAseq pipeline were processed, replicates merged, filtered, TPM values scaled and prepared for subsequent analysis. Scaled expression files were clustered using SOM, and visualized through heatmaps, umaps and line plots. Further, clusters were compared for enriched GO terms and analysed for ortholog enrichment across SOM clusters between atlantic salmon and rainbow trout (Fig 2).
-Duplicated gene expression divergence was assessed across embryonic stages and tissues for conserved AORE and LORE ohnologs as well as duplicated and singleton orthologs.
-*Scripts*
+## Notebooks
 
-1 - Load count data, merge replicates and normalise expression, perform SOM clustering
+| Notebook | Purpose |
+|---|---|
+| `00_setup.Rmd` | Package stack, `paths` configuration (local or Salmobase), shared constants, helper sourcing. |
+| `01_data_loading.Rmd` | Load DevMap and BodyMap TPM matrices, merge replicates, quantile-normalise. |
+| `02_soms.Rmd` | Fit (or load) the four SOMs; build per-cluster annotation tables. |
+| `03_figure2.Rmd` | Heatmaps, UMAP panels and the Figure 2 composite. |
+| `04_ohnolog_coclustering.Rmd` | Per-cluster composition and per-pair co-clustering of AORe and LORe salmon ohnologs across the DevMap and BodyMap SOMs. |
+| `05_observed_expected.Rmd` | Observed vs expected ortholog co-clustering against a 10,000-permutation null. RNA and ATAC Sankeys. |
+| `06_go.Rmd` | GO biological-process enrichment via `compareCluster` for the four SOMs. |
+| `99_helpers.R` | I/O, normalisation, SOM fit and annotation, palettes, heatmap builders. |
+| `99a_make_orgdb_salmon.Rmd` | Build and install `org.Ssalar.eg.db` from Ensembl BioMart. |
+| `99b_make_orgdb_trout.Rmd` | Build and install `org.Omykiss.eg.db` from Ensembl BioMart. |
+| `R/url_or_path.R` | Dispatch for the data loaders to accept either a local path or a Salmobase URL, with caching under `cache/`. |
+| `scripts/` | R scripts sourced by `04_ohnolog_coclustering.Rmd` for the ohnolog co-clustering analysis and its figure panels. |
 
--   script: Data_Loading_and_Normalization.Rmd
--   functions: Data_Loading_and_Normalization_Functions.R
+## How to run
 
-2 - Visualise normalized expression data using Heatmaps and UMAPS
+Open `00_setup.Rmd` in RStudio and run its chunks first; that sources
+`R/setup.R`, which loads the packages, declares `paths`, creates the
+expected directories under `./data`, `./results` and `./cache`, and prints
+the configuration in scope. Then run the chunks of `01..06` in order.
 
--   script: Clustering_and_Visualization_Fig2.Rmd
--   functions: clustering_and_visualization_functions.R
--   results: results/
+To switch between data sources or to enable the test-mode shortcuts, set
+the relevant option before sourcing `R/setup.R` (or in `00_setup.Rmd`
+itself):
 
-3 - Calculate and visualise shared orthologs across Atlantic salmon and rainbow trout SOM clusters
+```r
+options(aquafaang.mode = "salmobase")   # pull from Salmobase; default is "legacy"
+options(aquafaang.test = TRUE)          # short permutations / bootstraps
+```
 
--   script: observed_expected.Rmd
+The OrgDB notebooks (`99a`, `99b`) build and install
+`org.Ssalar.eg.db` / `org.Omykiss.eg.db` from Ensembl BioMart and only
+need to be run once per environment.
 
-4 - Create custom Atlantic salmon annotation package
+Rough wall times in `legacy` mode:
 
--   script: makeOrgDb.Rmd
+- `01_data_loading.Rmd`: seconds with the deposited normalised matrices;
+  a few minutes when regenerating.
+- `02_soms.Rmd`: seconds when loading; ~10 minutes when re-fitting in
+  `salmobase` mode.
+- `03_figure2.Rmd`: ~1 minute.
+- `04_ohnolog_coclustering.Rmd`: ~40 minutes.
+- `05_observed_expected.Rmd`: ~3 hours per permutation block in production,
+  about a minute with `TEST_MODE = TRUE` (100 permutations instead of
+  10,000).
+- `06_go.Rmd`: ~15 minutes once the OrgDB packages are installed.
 
-5 - Create custom rainbow trout annotation package
+## Data
 
--   script: makeOrbDb_trout.Rmd
+Two modes are supported, serving two different reproducibility goals.
 
-6 - Perform GO enrichment test across Atlantic salmon SOM clusters
+### `paths$mode = "legacy"` — identical figure reproduction
 
--   script: GO.Rmd
+Reads the exact derived assets used to produce the manuscript figures:
+`data/original_soms/soms.RData`, `data/original_norm_files/norm.RData`,
+the per-stage TSVs in `data/devmap/{salmon,trout}/`, and the per-tissue
+TSVs in `data/bodymap/{salmon,trout}/`. Knitting in this mode reproduces
+every panel bit-for-bit (within RNG-free chunks), without running the
+upstream normalisation or SOM fits. Use this if you want to verify the
+published figures and trace them back to a fixed analysis state.
 
-7 - Perform GO enrichment test across rainbow trout SOM clusters
+### `paths$mode = "salmobase"` — independent biological replication
 
--   script: GO_trout.Rmd
+Reads from the public Salmobase endpoints. DevMap is a single merged TSV
+per species:
 
+- <https://salmobase.org/datafiles/datasets/Aqua-Faang/nfcore/AtlanticSalmon/DevMap/RNA/results/star_rsem/rsem.merged.gene_tpm.tsv>
+- <https://salmobase.org/datafiles/datasets/Aqua-Faang/nfcore/RainbowTrout/DevMap/RNA/results/star_rsem/rsem.merged.gene_tpm.tsv>
+
+BodyMap is published per tissue, one merged TSV per tissue under
+`{Species}/BodyMap/RNA/{Tissue}/results/star_rsem/rsem.merged.gene_tpm.tsv`,
+with `Tissue` in `{Brain, DistalIntestine, Gill, Gonad, HeadKidney, Liver,
+Muscle}`. `process_tissue_data()` pulls the seven per-tissue TSVs and
+concatenates them; downloads are cached under `cache/` after the first
+fetch.
+
+In this mode the SOM fits are redone from scratch and the resulting unit
+numbering will differ from the published figures (kohonen RNG and BLAS
+ordering are not bit-stable across platforms; see Reproducibility). Use
+this if you want a biological replication: cluster assignments, panel
+appearance and exact significance values will differ slightly.
+
+## Reproducibility
+
+The SOMs in `data/original_soms/soms.RData` were fit on R 4.1.3 (Windows)
+with `set.seed(387334)`. The `kohonen` RNG path is identical on modern R
+but BLAS-level floating-point ordering means that a fresh fit on macOS or
+Linux will produce different unit-to-gene assignments. The notebooks
+therefore default to loading the deposited SOMs; the regeneration chunks
+in `02_soms.Rmd` are gated behind a `regenerate` flag.
+
+The observed/expected permutation in `05_observed_expected.Rmd` does not
+set a seed, so the empirical p-values drift slightly at the 1e-6 floor
+across re-runs.

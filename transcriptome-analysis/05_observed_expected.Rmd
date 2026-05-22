@@ -1,0 +1,427 @@
+---
+title: "05 — Observed vs expected ortholog co-clustering"
+author: "AQUA-FAANG salmonid analysis"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: show
+    toc: true
+    toc_float: true
+    cache: true
+---
+
+
+## Overview
+
+For each pair of (salmon SOM cluster, trout SOM cluster) this notebook counts
+the number of shared sub-orthogroups (observed), permutes the trout SOM
+assignments `N_PERMUTATIONS` times (10,000 in production) to build an expected distribution under random
+co-clustering (expected), and reports the per-cell empirical p-value and
+observed-to-expected ratio. Heatmaps and Sankey panels visualise the
+resulting matrices. The same pipeline runs in parallel for DevMap (16×16)
+and BodyMap (36×36).
+
+```{r setup_chain, include=FALSE}
+source("R/setup.R")
+# Expects sd_norm / sb_norm / sd_som / sb_som and `orthogroups` in scope
+# (produced by 01 and 02). The reorder vectors used below are tied to the
+# manuscript SOM ordering.
+```
+
+## Build SOM × orthogroup lists
+
+`sd_ids_som[[i]]` is the set of sub-orthogroup IDs for the salmon genes in
+DevMap unit i; `td_ids_som`, `sb_ids_som`, `tb_ids_som` analogous. The
+`_filtered` variants drop many-copy orthogroups (nSsal < 3 & nOmyk < 3) and
+are kept available for sensitivity checks even though the main analysis
+uses the unfiltered lists.
+
+```{r build_som_orthogroup_lists}
+sd_ids_som <- list(); td_ids_som <- list()
+for (i in 1:16) {
+  sd_ids_som[[i]] <- orthogroups$subOG[which(orthogroups$geneID %in% sd_ids[[i]])]
+  td_ids_som[[i]] <- orthogroups$subOG[which(orthogroups$geneID %in% td_ids[[i]])]
+}
+
+sb_ids_som <- list(); tb_ids_som <- list()
+for (i in 1:36) {
+  sb_ids_som[[i]] <- orthogroups$subOG[which(orthogroups$geneID %in% sb_ids[[i]])]
+  tb_ids_som[[i]] <- orthogroups$subOG[which(orthogroups$geneID %in% tb_ids[[i]])]
+}
+
+sd_ids_som_filtered <- list(); td_ids_som_filtered <- list()
+for (i in 1:16) {
+  sd_ids_som_filtered[[i]] <- orthogroups$subOG[which(
+    orthogroups$geneID %in% sd_ids[[i]] &
+      orthogroups$nSsal < 3 & orthogroups$nOmyk < 3)]
+  td_ids_som_filtered[[i]] <- orthogroups$subOG[which(
+    orthogroups$geneID %in% td_ids[[i]] &
+      orthogroups$nSsal < 3 & orthogroups$nOmyk < 3)]
+}
+sb_ids_som_filtered <- list(); tb_ids_som_filtered <- list()
+for (i in 1:36) {
+  sb_ids_som_filtered[[i]] <- orthogroups$subOG[which(
+    orthogroups$geneID %in% sb_ids[[i]] &
+      orthogroups$nSsal < 3 & orthogroups$nOmyk < 3)]
+  tb_ids_som_filtered[[i]] <- orthogroups$subOG[which(
+    orthogroups$geneID %in% tb_ids[[i]] &
+      orthogroups$nSsal < 3 & orthogroups$nOmyk < 3)]
+}
+```
+
+## Observed shared-orthogroup matrices
+
+Cell (i, j) is the number of sub-orthogroups present in both salmon unit i
+and trout unit j. Two matrices: DevMap (16×16) and BodyMap (36×36).
+
+```{r initial_observed_matrices}
+o_t <- data.frame(matrix(nrow = 16, ncol = 16))
+rownames(o_t) <- 1:16; colnames(o_t) <- 1:16
+for (i in 1:16) for (j in 1:16) {
+  o_t[i, j] <- length(sd_ids_som[[i]][which(sd_ids_som[[i]] %in% td_ids_som[[j]])])
+}
+
+o_t.b <- data.frame(matrix(nrow = 36, ncol = 36))
+rownames(o_t.b) <- 1:36; colnames(o_t.b) <- 1:36
+for (i in 1:36) for (j in 1:36) {
+  o_t.b[i, j] <- length(sb_ids_som[[i]][which(sb_ids_som[[i]] %in% tb_ids_som[[j]])])
+}
+```
+
+## Permutation setup
+
+Each replicate randomly re-assigns the trout SOM labels across the trout
+gene list while preserving the per-cluster cluster-size distribution. The
+join to `orthogroups[, c(1, 3)]` carries the subOG label through the
+permutation. `N_PERMUTATIONS` is 10,000 in production and 100 in test
+mode (`TEST_MODE = TRUE` in `R/setup.R`).
+
+```{r permutation_setup, cache=TRUE}
+td_norm_rownames <- as.data.frame(rownames(td_norm))
+colnames(td_norm_rownames) <- "geneID"
+tenk_list <- list()
+for (i in seq_len(N_PERMUTATIONS)) {
+  tenk_list[[i]] <- as.data.frame(sample(td_norm_rownames$geneID))
+  colnames(tenk_list[[i]]) <- "geneID"
+  tenk_list[[i]] <- left_join(tenk_list[[i]], orthogroups[, c(1, 3)],
+                              by = c("geneID" = "geneID"))
+  tenk_list[[i]]$somID <- td_som$som$unit.classif
+  tenk_list[[i]] <- tenk_list[[i]] %>% na.omit()
+}
+
+tb_norm_rownames <- as.data.frame(rownames(tb_norm))
+colnames(tb_norm_rownames) <- "geneID"
+tenk_list.b <- list()
+for (i in seq_len(N_PERMUTATIONS)) {
+  tenk_list.b[[i]] <- as.data.frame(sample(tb_norm_rownames$geneID))
+  colnames(tenk_list.b[[i]]) <- "geneID"
+  tenk_list.b[[i]] <- dplyr::left_join(tenk_list.b[[i]], orthogroups[, c(1, 3)],
+                                       by = c("geneID" = "geneID"))
+  tenk_list.b[[i]]$somID <- tb_som$som$unit.classif
+  tenk_list.b[[i]] <- tenk_list.b[[i]] %>% na.omit()
+}
+```
+
+## Random observations per cell
+
+Re-runs the observed-matrix calculation for each shuffled trout label
+vector, producing a (256 × `N_PERMUTATIONS`) DevMap distribution and a
+(1296 × `N_PERMUTATIONS`) BodyMap distribution.
+
+```{r permutation_observations, cache=TRUE}
+random_observations <- data.frame(matrix(nrow = 256, ncol = N_PERMUTATIONS))
+salnames <- paste(rep("S", 16), rep(1:16, each = 16), sep = "")
+omnames  <- paste(rep("T", 16), rep(1:16, 16), sep = "")
+rownames(random_observations) <- paste(salnames, omnames, sep = "x")
+
+for (i in seq_len(N_PERMUTATIONS)) {
+  for (j in 1:16) for (l in 1:16) {
+    salmon_som_orthos <- sd_ids_som[[j]]
+    trout_som_orthos <- tenk_list[[i]]$subOG[which(tenk_list[[i]]$somID == l)]
+    random_observations[16 * (j - 1) + l, i] <- sum(salmon_som_orthos %in% trout_som_orthos)
+  }
+}
+
+random_observations.b <- data.frame(matrix(nrow = 1296, ncol = N_PERMUTATIONS))
+salnames.b <- paste(rep("S", 36), rep(1:36, each = 36), sep = "")
+omnames.b  <- paste(rep("T", 36), rep(1:36, 36), sep = "")
+rownames(random_observations.b) <- paste(salnames.b, omnames.b, sep = "x")
+
+for (i in seq_len(N_PERMUTATIONS)) {
+  for (j in 1:36) for (l in 1:36) {
+    salmon_som_orthos.b <- sb_ids_som[[j]]
+    trout_som_orthos.b <- tenk_list.b[[i]]$subOG[which(tenk_list.b[[i]]$somID == l)]
+    random_observations.b[36 * (j - 1) + l, i] <-
+      sum(salmon_som_orthos.b %in% trout_som_orthos.b)
+  }
+}
+```
+
+## Empirical p-values
+
+`-log10(p)` with a 1e-6 floor so cells where every permutation undershoots
+the observed do not become `Inf`.
+
+```{r empirical_pvalues}
+pvals_mat_log <- data.frame(matrix(nrow = 16, ncol = 16))
+for (i in 1:16) for (j in 1:16) {
+  pvals_mat_log[i, j] <- -log10(0.000001 +
+    length(which(random_observations[16 * (i - 1) + j, ] > o_t[i, j])) / N_PERMUTATIONS)
+}
+
+pvals_mat_log.b <- data.frame(matrix(nrow = 36, ncol = 36))
+for (i in 1:36) for (j in 1:36) {
+  pvals_mat_log.b[i, j] <- -log10(0.000001 +
+    length(which(random_observations.b[36 * (i - 1) + j, ] > o_t.b[i, j])) / N_PERMUTATIONS)
+}
+```
+
+## Observed / expected ratios
+
+```{r observed_expected_ratios}
+oe_mat <- data.frame(matrix(nrow = 16, ncol = 16))
+random_obs_mean <- rowMeans(random_observations)
+rand_obs_wide   <- matrix(random_obs_mean, nrow = 16, ncol = 16, byrow = TRUE)
+for (i in 1:16) for (j in 1:16) {
+  oe_mat[i, j] <- o_t[i, j] / rand_obs_wide[i, j]
+}
+
+oe_mat.b <- data.frame(matrix(nrow = 36, ncol = 36))
+random_obs_mean.b <- rowMeans(random_observations.b)
+rand_obs_wide.b   <- matrix(random_obs_mean.b, nrow = 36, ncol = 36, byrow = TRUE)
+for (i in 1:36) for (j in 1:36) {
+  oe_mat.b[i, j] <- o_t.b[i, j] / rand_obs_wide.b[i, j]
+}
+```
+
+## Reorder matrices to manuscript SOM order
+
+The DevMap reorderings move the rows/cols into the M1..P2 sequence used in
+the manuscript heatmaps; the BodyMap reorderings consume the
+`class_number` order from `sb_som_info` / `tb_som_info`.
+
+```{r reorder_matrices}
+pvals_mat_order_log <- pvals_mat_log[
+  c(13, 10, 15, 14, 16, 12, 4, 2, 1, 5, 9, 6, 7, 11, 8, 3),
+  c(13, 14, 9, 5, 1, 2, 3, 8, 16, 12, 15, 6, 10, 7, 4, 11)]
+
+pvals_mat_order_log.b <- pvals_mat_log.b[
+  as.numeric(sb_som_info$class_number),
+  as.numeric(tb_som_info$class_number)]
+
+oe_mat <- oe_mat[
+  c(13, 10, 15, 14, 16, 12, 4, 2, 1, 9, 6, 5, 7, 11, 8, 3),
+  c(13, 14, 9, 5, 1, 2, 3, 8, 15, 12, 16, 6, 10, 7, 4, 11)]
+
+oe_mat.b <- oe_mat.b[
+  as.numeric(sb_som_info$class_number),
+  as.numeric(tb_som_info$class_number)]
+```
+
+## Heatmap panels
+
+```{r heatmap_panels}
+pval_heatmap <- Heatmap(as.matrix(pvals_mat_order_log), name = "Empirical p-val",
+  cluster_column_slices = FALSE, cluster_row_slices = FALSE,
+  show_row_dend = FALSE, show_row_names = TRUE,
+  col = colorRamp2(c(1, 0.5, 0), c("red", "yellow", "blue")),
+  show_column_names = TRUE, show_column_dend = FALSE,
+  use_raster = TRUE, raster_by_magick = TRUE,
+  cluster_columns = FALSE, cluster_rows = FALSE,
+  rect_gp = gpar(col = "white", lwd = 2))
+
+o_e_heatmap <- Heatmap(log2(as.matrix(oe_mat) + 0.1), name = "o/e ratio",
+  cluster_column_slices = FALSE, cluster_row_slices = FALSE,
+  show_row_dend = FALSE, show_row_names = TRUE,
+  col = colorRamp2(c(-3, 0, 3), c("skyblue", "seashell", "lightcoral")),
+  show_column_names = TRUE, show_column_dend = FALSE,
+  use_raster = TRUE, raster_by_magick = TRUE,
+  cluster_columns = FALSE, cluster_rows = FALSE,
+  rect_gp = gpar(col = "white", lwd = 2))
+
+o_e_heatmap_specific <- Heatmap(log2(as.matrix(oe_mat[c(1:9, 11, 12), c(1:8, 10, 11)]) + 0.1),
+  name = "o/e ratio",
+  cluster_column_slices = FALSE, cluster_row_slices = FALSE,
+  show_row_dend = FALSE, show_row_names = TRUE,
+  col = colorRamp2(c(-3, 0, 3), c("skyblue", "seashell", "lightcoral")),
+  show_column_names = TRUE, show_column_dend = FALSE,
+  use_raster = TRUE, raster_by_magick = TRUE,
+  cluster_columns = FALSE, cluster_rows = FALSE,
+  rect_gp = gpar(col = "white", lwd = 2))
+
+o_e_heatmap.b <- Heatmap(log2(as.matrix(oe_mat.b) + 0.1), name = "o/e ratio",
+  cluster_column_slices = FALSE, cluster_row_slices = FALSE,
+  show_row_dend = FALSE, show_row_names = TRUE,
+  col = colorRamp2(c(-3, 0, 3), c("skyblue", "seashell", "lightcoral")),
+  show_column_names = TRUE, show_column_dend = FALSE,
+  use_raster = TRUE, raster_by_magick = TRUE,
+  cluster_columns = FALSE, cluster_rows = FALSE,
+  rect_gp = gpar(col = "white", lwd = 2))
+
+o_e_heatmap_specific.b <- Heatmap(log2(as.matrix(oe_mat.b[1:20, 1:21]) + 0.1),
+  name = "o/e ratio",
+  cluster_column_slices = FALSE, cluster_row_slices = FALSE,
+  show_row_dend = FALSE, show_row_names = TRUE,
+  col = colorRamp2(c(-3, 0, 3), c("skyblue", "seashell", "lightcoral")),
+  show_column_names = TRUE, show_column_dend = FALSE,
+  use_raster = TRUE, raster_by_magick = TRUE,
+  cluster_columns = FALSE, cluster_rows = FALSE,
+  rect_gp = gpar(col = "white", lwd = 2))
+```
+
+## Sankey panel — RNA shared orthogroups
+
+The DevMap Sankey uses the reordered, stage-specific subset of the
+observation matrix (rows 1:9, 11, 12; cols 1:8, 10, 11). Edge colour is the
+log2 o/e ratio mapped onto a skyblue → seashell → lightcoral palette.
+
+```{r sankey_rna_overlap}
+o_st <- data.frame(matrix(nrow = 16, ncol = 16))
+rownames(o_st) <- 1:16; colnames(o_st) <- 1:16
+for (i in 1:16) for (j in 1:16) {
+  o_st[i, j] <- length(sd_ids_som[[i]][which(sd_ids_som[[i]] %in% td_ids_som[[j]])])
+}
+o_st_order <- o_st[
+  c(13, 10, 15, 14, 16, 12, 4, 2, 1, 9, 6, 5, 7, 11, 8, 3),
+  c(13, 14, 9, 5, 1, 2, 3, 8, 15, 12, 16, 6, 10, 7, 4, 11)]
+o_st_order_trim <- o_st_order[c(1:9, 11, 12), c(1:8, 10, 11)]
+
+salmon_sum <- rowSums(o_st_order_trim)
+trout_sum  <- colSums(o_st_order_trim)
+
+o_st_long <- pivot_longer(o_st_order_trim,
+                          names_to = "trout_clusters",
+                          values_to = "shared orthologues",
+                          cols = everything())
+o_st_long$salmon_clusters <- rep(c(13, 10, 15, 14, 16, 12, 4, 2, 1, 6, 5),
+                                 each = 10)
+
+oe_mat_specific      <- log2(as.matrix(oe_mat[c(1:9, 11, 12), c(1:8, 10, 11)]) + 0.1)
+oe_mat_specific_long <- pivot_longer(as.data.frame(oe_mat_specific),
+                                     everything(),
+                                     names_to = "trout_cluster",
+                                     values_to = "o_eratio")
+
+data <- data.frame(
+  source = factor(paste("s", o_st_long$salmon_clusters, sep = ""),
+                  levels = c("s13", "s10", "s15", "s14",
+                             "s16", "s12", "s4", "s2",
+                             "s1", "s6", "s5")),
+  target = factor(paste("t", o_st_long$trout_clusters, sep = ""),
+                  levels = c("t13", "t14", "t9", "t5",
+                             "t1", "t2", "t3", "t8",
+                             "t12", "t16")),
+  count = o_st_long$`shared orthologues`,
+  color = oe_mat_specific_long$o_eratio)
+
+color_palette <- colorRampPalette(c("skyblue", "seashell", "lightcoral"))
+rescaled_values <- rescale(data$color, to = c(0, 1))
+data$colors <- color_palette(nrow(data))[as.integer(round(rescaled_values * 99)) + 1]
+
+ggplot(data, aes(axis1 = source, axis2 = target, y = count)) +
+  geom_alluvium(aes(fill = I(colors)), alpha = 0.7) +
+  geom_stratum() +
+  geom_text(stat = "stratum", aes(label = after_stat(stratum))) +
+  theme_minimal()
+
+# BodyMap equivalent
+o_st.b <- data.frame(matrix(nrow = 36, ncol = 36))
+rownames(o_st.b) <- 1:36; colnames(o_st.b) <- 1:36
+for (i in 1:36) for (j in 1:36) {
+  o_st.b[i, j] <- length(sb_ids_som[[i]][which(sb_ids_som[[i]] %in% tb_ids_som[[j]])])
+}
+o_st_order.b <- o_st.b[as.numeric(sb_som_info$class_number),
+                       as.numeric(tb_som_info$class_number)]
+o_st_order_trim.b <- o_st_order.b[1:20, 1:21]
+
+o_st_long.b <- pivot_longer(o_st_order_trim.b,
+                            names_to = "trout_clusters",
+                            values_to = "shared orthologues",
+                            cols = everything())
+o_st_long.b$salmon_clusters <- rep(as.numeric(rownames(o_st_order_trim.b)),
+                                   each = length(o_st_order_trim.b))
+
+oe_mat_specific.b      <- log2(as.matrix(oe_mat.b[1:20, 1:21]) + 0.1)
+oe_mat_specific_long.b <- pivot_longer(as.data.frame(oe_mat_specific.b),
+                                       everything(),
+                                       names_to = "trout_cluster",
+                                       values_to = "o_eratio")
+
+data.b <- data.frame(
+  source = factor(paste("s", o_st_long.b$salmon_clusters, sep = ""),
+                  levels = unique(paste("s", o_st_long.b$salmon_clusters, sep = ""))),
+  target = factor(paste("t", o_st_long.b$trout_clusters, sep = ""),
+                  levels = unique(paste("t", o_st_long.b$trout_clusters, sep = ""))),
+  count = o_st_long.b$`shared orthologues`,
+  color = oe_mat_specific_long.b$o_eratio)
+
+color_palette.b <- colorRampPalette(c("skyblue", "seashell", "lightcoral"))
+rescaled_values.b <- rescale(data.b$color, to = c(0, 1))
+data.b$colors <- color_palette.b(nrow(data.b))[as.integer(round(rescaled_values.b * nrow(data.b))) + 1]
+
+ggplot(data.b, aes(axis1 = source, axis2 = target, y = count)) +
+  geom_alluvium(aes(fill = I(colors)), alpha = 0.7) +
+  geom_stratum() +
+  geom_text(stat = "stratum", aes(label = after_stat(stratum))) +
+  theme_minimal()
+```
+
+## Sankey panel — ATAC peak overlap (DevMap)
+
+ATAC peak SOM overlap counts come from upstream Lars-Gronvold-pipeline TSVs.
+`Ssal_clusters` / `Omyk_clusters` filter to the manuscript SOM-cluster
+selection.
+
+```{r sankey_atac_overlap_dev}
+overlapping_peaks_devmap <- read_tsv("data/DevMapSOMpeakOverlapCount.tsv")
+Ssal_clusters <- c(21, 22, 16, 17, 11, 7, 6, 1, 2, 8, 4, 5, 10, 20, 14, 24, 25)
+Omyk_clusters <- c(16, 17, 21, 6, 7, 1, 19, 2, 3, 5, 18, 23, 24, 20, 14, 15, 25)
+
+overlapping_peaks_devmap_fs <- overlapping_peaks_devmap[
+  which(overlapping_peaks_devmap$cluster_Ssal %in% Ssal_clusters), ]
+overlapping_peaks_fst <- overlapping_peaks_devmap_fs[
+  which(overlapping_peaks_devmap_fs$cluster_Omyk %in% Omyk_clusters), ]
+
+overlapping_peaks_fst$cluster_Omyk <- factor(
+  paste("t", overlapping_peaks_fst$cluster_Omyk, sep = ""),
+  levels = paste("t", Omyk_clusters, sep = ""))
+overlapping_peaks_fst$cluster_Ssal <- factor(
+  paste("s", overlapping_peaks_fst$cluster_Ssal, sep = ""),
+  levels = paste("s", Ssal_clusters, sep = ""))
+
+ggplot(overlapping_peaks_fst,
+       aes(axis1 = cluster_Ssal, axis2 = cluster_Omyk, y = n)) +
+  geom_alluvium(aes(fill = n), alpha = 0.7) +
+  geom_stratum() +
+  geom_text(stat = "stratum", aes(label = after_stat(stratum))) +
+  theme_minimal() +
+  scale_fill_gradient(low = "lightgrey", high = "coral4")
+```
+
+## Sankey panel — ATAC peak overlap (BodyMap)
+
+```{r sankey_atac_overlap_body}
+overlapping_peaks_bodymap <- read_tsv("data/BodyMapSOMpeakOverlapCount.tsv")
+Ssal_clusters_b <- c(22, 23, 7, 6, 1, 13, 19, 25, 24)
+Omyk_cluster_b  <- c(3, 2, 17, 16, 21, 20, 25)
+
+overlapping_peaks_bodymap_fs <- overlapping_peaks_bodymap[
+  which(overlapping_peaks_bodymap$cluster_Ssal %in% Ssal_clusters_b), ]
+overlapping_peaks_bodymap_fst <- overlapping_peaks_bodymap_fs[
+  which(overlapping_peaks_bodymap_fs$cluster_Omyk %in% Omyk_cluster_b), ]
+
+overlapping_peaks_bodymap_fst$cluster_Ssal <- factor(
+  paste("s", overlapping_peaks_bodymap_fst$cluster_Ssal, sep = ""),
+  levels = paste("s", Ssal_clusters_b, sep = ""))
+overlapping_peaks_bodymap_fst$cluster_Omyk <- factor(
+  paste("t", overlapping_peaks_bodymap_fst$cluster_Omyk, sep = ""),
+  levels = paste("t", Omyk_cluster_b, sep = ""))
+
+ggplot(overlapping_peaks_bodymap_fst,
+       aes(axis1 = cluster_Ssal, axis2 = cluster_Omyk, y = n)) +
+  geom_alluvium(aes(fill = n), alpha = 0.7) +
+  geom_stratum() +
+  geom_text(stat = "stratum", aes(label = after_stat(stratum))) +
+  theme_minimal() +
+  scale_fill_gradient(low = "lightgrey", high = "coral4")
+```

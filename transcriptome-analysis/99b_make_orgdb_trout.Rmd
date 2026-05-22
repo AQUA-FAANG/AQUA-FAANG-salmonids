@@ -1,0 +1,77 @@
+---
+title: "99b — Build rainbow trout OrgDB"
+author: "AQUA-FAANG salmonid analysis"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: show
+    toc: true
+    toc_float: true
+    cache: true
+---
+
+
+## Overview
+
+Builds the `org.Omykiss.eg.db` annotation package that the trout sections of
+`06_go.Rmd` consume. Same BioMart → AnnotationForge pipeline as `99a` but
+keyed against the `omykiss_gene_ensembl` dataset and `tax_id = 8022`.
+
+## Packages
+
+```{r r_packages, message=FALSE, warning=FALSE}
+library(AnnotationForge)
+library(biomaRt)
+library(tidyverse)
+```
+
+## Fetch annotation from BioMart
+
+```{r fetch_biomart, cache=TRUE}
+tbl_trout <- getBM(
+  attributes = c("ensembl_gene_id", "go_id", "go_linkage_type",
+                 "external_gene_name", "description", "chromosome_name"),
+  mart = useDataset(dataset = "omykiss_gene_ensembl",
+                    mart = useMart("ENSEMBL_MART_ENSEMBL")))
+```
+
+## Split into the three AnnotationForge tables
+
+```{r split_tables}
+gene_info_tbl_trout <- tbl_trout %>%
+  dplyr::select(GID = ensembl_gene_id,
+                SYMBOL = external_gene_name,
+                GENENAME = description) %>%
+  distinct() %>%
+  filter(SYMBOL != "", GENENAME != "")
+
+gene_chromosome_tbl_trout <- tbl_trout %>%
+  distinct(GID = ensembl_gene_id, CHROMOSOME = chromosome_name)
+
+gene_GO_tbl_trout <- tbl_trout %>%
+  distinct(GID = ensembl_gene_id, GO = go_id, EVIDENCE = "go_linkage_type") %>%
+  filter(GO != "", EVIDENCE != "")
+```
+
+## Build the OrgDB package
+
+```{r build_orgdb}
+AnnotationForge::makeOrgPackage(
+  gene_info  = gene_info_tbl_trout,
+  chromosome = gene_chromosome_tbl_trout,
+  go         = gene_GO_tbl_trout,
+  version    = "0.1",
+  maintainer = "Some One <so@someplace.org>",
+  author     = "Some One <so@someplace.org>",
+  outputDir  = ".",
+  tax_id     = "8022",
+  genus      = "Oncorhynchus",
+  species    = "mykiss",
+  goTable    = "go")
+```
+
+## Install the built package
+
+```{r install_orgdb}
+install.packages("./org.Omykiss.eg.db", repos = NULL, type = "source")
+```

@@ -1,0 +1,101 @@
+---
+title: "ATAC clustering and visualization: setup"
+author: "AQUA-FAANG salmonid analysis"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: show
+    toc: true
+    toc_float: true
+    cache: true
+---
+
+
+```{r knitr_setup, include = FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  cache = TRUE
+)
+```
+
+## Purpose
+
+Entry point for the ATAC chromatin-accessibility analysis
+of Atlantic salmon (Salmo salar) and rainbow trout (Oncorhynchus mykiss). It
+declares the R package dependencies, defines the on-disk paths used by every
+downstream notebook, and sources the shared helper functions from
+`99_helpers.R`. Knit this notebook first; downstream notebooks expect the
+`paths` list and helper functions to be available.
+
+## R package dependencies
+
+The packages below cover I/O of consensus expression tables and IDR consensus
+BED files (data.table, plyranges, rtracklayer), self-organising map fitting
+and dimensionality reduction (kohonen, cluster, uwot), heatmap rendering
+(ComplexHeatmap, circlize) and figure assembly (gtable, gridExtra). The
+tidyverse + viridis pair supports data wrangling and the perceptually uniform
+colour scales.
+
+```{r r_packages}
+suppressPackageStartupMessages({
+  library(circlize)
+  library(tidyverse)
+  library(viridis)
+  library(ComplexHeatmap)
+  library(data.table)
+  library(gtable)
+  library(gridExtra)
+  library(kohonen)
+  library(uwot)
+  library(cluster)
+  library(plyranges)
+  library(rtracklayer)
+})
+
+sessionInfo()
+```
+
+## Data paths
+
+Two modes. `legacy` reads the local derived assets that produced the
+manuscript figures (consensus expression RDS and IDR consensus BED dirs)
+and reproduces the figures bit-for-bit. `salmobase` points at the upstream
+nf-core align outputs published on Salmobase; the IDR consensus BEDs and
+consensus-expression RDS files are derived in the sibling
+`robust-open-chromatin/` pipeline rather than republished by Salmobase, so
+this mode is the entry point for a from-raw biological replication via
+that pipeline.
+
+```{r paths_config}
+paths <- list(
+  mode = "legacy",
+  legacy = list(
+    consensus_expression_salmon = "data/atac/AtlanticSalmon_consensus_expression.RDS",
+    consensus_expression_trout  = "data/atac/RainbowTrout_consensus_expression.RDS",
+    idr_bodymap_salmon_dir = "data/atac/bodymap_idr/salmon/",
+    idr_devmap_salmon_dir  = "data/atac/devmap_idr/salmon/",
+    idr_bodymap_trout_dir  = "data/atac/bodymap_idr/trout/",
+    idr_devmap_trout_dir   = "data/atac/devmap_idr/trout/",
+    derived_dir            = "data/derived/",
+    results_dir            = "results/"
+  ),
+  salmobase = list(
+    # Browse-only: Salmobase publishes nf-core align outputs only.
+    salmon_devmap_atac  = "https://salmobase.org/datafiles/datasets/Aqua-Faang/nfcore/AtlanticSalmon/DevMap/ATAC/results/",
+    salmon_bodymap_atac = "https://salmobase.org/datafiles/datasets/Aqua-Faang/nfcore/AtlanticSalmon/BodyMap/ATAC/results/",
+    trout_devmap_atac   = "https://salmobase.org/datafiles/datasets/Aqua-Faang/nfcore/RainbowTrout/DevMap/ATAC/results/",
+    trout_bodymap_atac  = "https://salmobase.org/datafiles/datasets/Aqua-Faang/nfcore/RainbowTrout/BodyMap/ATAC/results/"
+  )
+)
+
+dir.create(paths$legacy$derived_dir, showWarnings = FALSE, recursive = TRUE)
+dir.create(paths$legacy$results_dir, showWarnings = FALSE, recursive = TRUE)
+```
+
+## Helpers
+
+```{r source_helpers}
+source("99_helpers.R")
+```

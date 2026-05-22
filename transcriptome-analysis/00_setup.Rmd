@@ -1,0 +1,40 @@
+---
+title: "00 — Setup"
+author: "AQUA-FAANG salmonid analysis"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: show
+    toc: true
+    toc_float: true
+---
+
+## Pick a data source
+
+Run one of these two lines before sourcing the setup, depending on what you
+want to do. The default is `legacy`.
+
+```{r mode_toggle, eval=FALSE}
+options(aquafaang.mode = "legacy")     # reproduce the published figures
+options(aquafaang.mode = "salmobase")  # replicate from raw RNA-seq via Salmobase
+options(aquafaang.test = TRUE)         # shortcut slow chunks for testing
+```
+
+## Run setup
+
+Everything that the downstream notebooks need (`paths`, helpers, constants,
+the package stack) lives in `R/setup.R`. Source it once per session.
+
+```{r run_setup}
+source("R/setup.R")
+sessionInfo()
+```
+
+## Configuration in scope
+
+```{r show_config}
+cat("DATA_MODE = ", DATA_MODE, "\n", sep = "")
+cat("TEST_MODE = ", TEST_MODE, "\n", sep = "")
+cat("N_PERMUTATIONS = ", N_PERMUTATIONS, "\n", sep = "")
+str(paths$active, max.level = 1)
+```

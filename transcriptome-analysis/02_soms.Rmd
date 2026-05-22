@@ -1,0 +1,105 @@
+---
+title: "02 — Self-organising maps"
+author: "AQUA-FAANG salmonid analysis"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: show
+    toc: true
+    toc_float: true
+    cache: true
+---
+
+## Overview
+
+Provides the four self-organising maps used throughout the paper: a 4×4
+DevMap SOM and a 6×6 BodyMap SOM for each species, both on a hexagonal
+grid. In `legacy` mode the SOMs are loaded from
+`data/original_soms/soms.RData` (the canonical objects that produced the
+manuscript figures). In `salmobase` mode they are re-fit from the
+normalised matrices produced in `01_data_loading.Rmd`; unit assignments
+will differ from the manuscript because `kohonen::som` is not bit-stable
+across BLAS builds.
+
+```{r setup_chain, include=FALSE}
+source("R/setup.R")
+```
+
+## Seed
+
+```{r seed_lock}
+som_seed <- 387334
+```
+
+## Fit DevMap SOMs
+
+```{r fit_devmap_soms, eval=!SOM_LOAD_LEGACY, cache=TRUE}
+set.seed(som_seed)
+sd_som <- get_som(sd_norm, 4, 4)
+set.seed(som_seed)
+td_som <- get_som(td_norm, 4, 4)
+```
+
+## Fit BodyMap SOMs
+
+The BodyMap fits take the column-reordered input so the unit assignments
+line up with the tissue × maturity × sex ordering used in every BodyMap
+figure.
+
+```{r fit_bodymap_soms, eval=!SOM_LOAD_LEGACY, cache=TRUE}
+set.seed(som_seed)
+sb_som <- get_som_bodymap(sb_norm, 6, 6, order_indices = indices_order_ssal)
+set.seed(som_seed)
+tb_som <- get_som_bodymap(tb_norm, 6, 6, order_indices = indices_order_omyk)
+```
+
+## Load deposited SOM objects (legacy mode only)
+
+`soms.RData` carries `sd_som`, `td_som`, `sb_som`, `tb_som`. The BodyMap
+stat tables are then reordered so the stage factor reflects the canonical
+tissue grouping; without this re-levelling the BodyMap heatmaps and bar
+panels render with the columns out of order.
+
+```{r load_legacy_soms, eval=SOM_LOAD_LEGACY}
+load(paths$legacy$soms)
+
+lev <- levels(sb_som$stat$stage)
+lev_order <- lev[c(3:6, 7:8, 1:2, 9:28)]
+sb_som$stat$stage <- factor(sb_som$stat$stage, levels = lev_order)
+sb_som$stat <- arrange(sb_som$stat, class, stage)
+
+lev <- levels(tb_som$stat$stage)
+lev_order <- lev[c(3:6, 7, 1:2, 8:28)]
+tb_som$stat$stage <- factor(tb_som$stat$stage, levels = lev_order)
+tb_som$stat <- arrange(tb_som$stat, class, stage)
+```
+
+## Per-cluster annotation tables
+
+`som_ids()` returns the gene IDs that landed in each SOM unit.
+`som_file_info_d()` and `som_file_info_b()` add the per-cluster
+annotation (peak stage / tissue, peak mean expression, constitutive flag,
+stage-specific flag for BodyMap) consumed by the heatmap, UMAP, and
+ohnolog notebooks.
+
+```{r som_info_tables}
+sd_ids <- som_ids(sd_norm, sd_som)
+sd_som_info <- som_file_info_d(sd_som)
+td_ids <- som_ids(td_norm, td_som)
+td_som_info <- som_file_info_d(td_som)
+
+sb_ids <- som_ids(sb_norm, sb_som)
+sb_som_info <- som_file_info_b(sb_som)
+tb_ids <- som_ids(tb_norm, tb_som)
+tb_som_info <- som_file_info_b(tb_som)
+```
+
+## Persist SOMs (salmobase mode)
+
+When the SOMs were just re-fit, write them to a sibling `soms_regen.RData`
+so the legacy file stays intact.
+
+```{r save_som_objects, eval=!SOM_LOAD_LEGACY}
+save(sd_som, td_som, sb_som, tb_som,
+     file = sub("\\.RData$", "_regen.RData", paths$legacy$soms))
+```

@@ -1,0 +1,85 @@
+---
+title: "99a — Build Atlantic salmon OrgDB"
+author: "AQUA-FAANG salmonid analysis"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: show
+    toc: true
+    toc_float: true
+    cache: true
+---
+
+
+## Overview
+
+Builds the `org.Ssalar.eg.db` annotation package that the GO enrichment
+notebook (`06_go.Rmd`) consumes. Ensembl BioMart provides gene IDs, GO
+mappings, gene symbols, descriptions, and chromosomes; AnnotationForge
+turns them into an installable OrgDB. Run once per Ensembl release.
+
+## Packages
+
+```{r r_packages, message=FALSE, warning=FALSE}
+library(AnnotationForge)
+library(biomaRt)
+library(tidyverse)
+```
+
+## Fetch annotation from BioMart
+
+One query for everything; we split into the three tables AnnotationForge
+needs in the next chunk.
+
+```{r fetch_biomart, cache=TRUE}
+tbl <- getBM(
+  attributes = c("ensembl_gene_id", "go_id", "go_linkage_type",
+                 "external_gene_name", "description", "chromosome_name"),
+  mart = useDataset(dataset = "ssalar_gene_ensembl",
+                    mart = useMart("ENSEMBL_MART_ENSEMBL")))
+```
+
+## Split into the three AnnotationForge tables
+
+The gene-info table requires non-empty SYMBOL and GENENAME, the GO table
+requires non-empty GO and evidence; both filters are applied here so the
+package builder does not silently drop rows.
+
+```{r split_tables}
+gene_info_tbl <- tbl %>%
+  dplyr::select(GID = ensembl_gene_id,
+                SYMBOL = external_gene_name,
+                GENENAME = description) %>%
+  distinct() %>%
+  filter(SYMBOL != "", GENENAME != "")
+
+gene_chromosome_tbl <- tbl %>%
+  distinct(GID = ensembl_gene_id, CHROMOSOME = chromosome_name)
+
+gene_GO_tbl <- tbl %>%
+  distinct(GID = ensembl_gene_id, GO = go_id, EVIDENCE = "go_linkage_type") %>%
+  filter(GO != "", EVIDENCE != "")
+```
+
+## Build the OrgDB package
+
+```{r build_orgdb}
+AnnotationForge::makeOrgPackage(
+  gene_info  = gene_info_tbl,
+  chromosome = gene_chromosome_tbl,
+  go         = gene_GO_tbl,
+  version    = "0.1",
+  maintainer = "Some One <so@someplace.org>",
+  author     = "Some One <so@someplace.org>",
+  outputDir  = ".",
+  tax_id     = "8030",
+  genus      = "Salmo",
+  species    = "salar",
+  goTable    = "go")
+```
+
+## Install the built package
+
+```{r install_orgdb}
+install.packages("./org.Ssalar.eg.db", repos = NULL, type = "source")
+```

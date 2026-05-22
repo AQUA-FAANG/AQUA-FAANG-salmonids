@@ -1,0 +1,115 @@
+---
+title: "01 — Data loading and normalisation"
+author: "AQUA-FAANG salmonid analysis"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: show
+    toc: true
+    toc_float: true
+    cache: true
+---
+
+## Overview
+
+Loads the DevMap and BodyMap RNA-seq TPM matrices for Atlantic salmon and
+rainbow trout, merges technical replicates, and produces the
+quantile-normalised, z-scaled matrices that feed the SOM fits in
+`02_soms.Rmd`. A trailing chunk re-saves the four normalised matrices to
+`data/original_norm_files/norm.RData` so the downstream notebooks can
+skip the recomputation.
+
+```{r setup_chain, include=FALSE}
+source("R/setup.R")
+```
+
+## Load the orthogroup table
+
+The salmon × trout sub-orthogroup table is the join key for every
+cross-species analysis (observed / expected, ohnolog co-clustering,
+fold-change patterns). `read_table_anywhere()` accepts either the local
+path (`legacy` mode) or the Salmobase URL (`salmobase` mode) and caches
+the URL download under `cache/`.
+
+```{r load_orthogroups}
+orthogroups <- read_table_anywhere(paths$active$orthogroups)
+```
+
+## Load DevMap TPM matrices
+
+DevMap RNA covers 14 developmental stages × technical replicates for both
+species. The TSV layout (gene_id, transcript_id(s), then one column per
+sample) is identical between the legacy local copy and the Salmobase mirror.
+
+```{r load_devmap_tpm}
+sd_raw <- read_table_anywhere(paths$active$devmap_salmon)
+td_raw <- read_table_anywhere(paths$active$devmap_trout)
+```
+
+## Load BodyMap TPM matrices
+
+BodyMap RNA is published per tissue (one TSV per tissue containing all
+maturity × sex × replicate columns for that tissue). `process_tissue_data()`
+concatenates the seven per-tissue files into a single gene × sample matrix
+in the order that `merge_reps_bodymap()` expects.
+
+```{r load_bodymap_tpm}
+if (DATA_MODE == "salmobase") {
+  sb_raw <- process_tissue_data("salmon",
+                                urls = paths$active$bodymap_salmon_urls)
+  tb_raw <- process_tissue_data("trout",
+                                urls = paths$active$bodymap_trout_urls)
+} else {
+  sb_raw <- process_tissue_data("salmon",
+                                file_path = paths$active$bodymap_salmon_dir)
+  tb_raw <- process_tissue_data("trout",
+                                file_path = paths$active$bodymap_trout_dir)
+}
+```
+
+## Merge technical replicates
+
+`merge_reps_devmap()` collapses the per-stage replicate columns into one
+mean-TPM column per stage; `merge_reps_bodymap()` collapses the
+Tissue × Maturity × Sex × Replicate naming scheme into one mean-TPM column
+per (Tissue × Maturity × Sex) sample and renames Gonad → Ova / Testes by
+the sex field.
+
+```{r merge_replicates}
+sd_merged <- merge_reps_devmap(sd_raw)
+td_merged <- merge_reps_devmap(td_raw)
+
+sb_merged <- merge_reps_bodymap(sb_raw)
+tb_merged <- merge_reps_bodymap(tb_raw)
+```
+
+## Normalise expression
+
+`normalize()` drops rows with no sample above 1 TPM, quantile-normalises
+across samples and z-scales each gene. In `legacy` mode the chunk loads
+the deposited matrices; in `salmobase` mode it redoes the normalisation
+from scratch so that the resulting matrices reflect the Salmobase input.
+
+```{r normalize_expression}
+if (DATA_MODE == "legacy" && file.exists(paths$active$norm)) {
+  load(paths$active$norm)
+} else {
+  sd_norm <- normalize(sd_merged)
+  td_norm <- normalize(td_merged)
+  sb_norm <- normalize(sb_merged)
+  tb_norm <- normalize(tb_merged)
+}
+```
+
+## Persist normalised matrices
+
+In `salmobase` mode (where the matrices were just re-derived) the chunk
+writes a sibling `norm_regen.RData` so the legacy file is not overwritten.
+
+```{r save_norm_rdata}
+if (DATA_MODE == "salmobase") {
+  out <- sub("\\.RData$", "_regen.RData", paths$legacy$norm)
+  save(sd_norm, td_norm, sb_norm, tb_norm, file = out)
+  message("Wrote ", out)
+}
+```
