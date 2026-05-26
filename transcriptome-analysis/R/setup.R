@@ -6,14 +6,17 @@
 # -----------------------------------------------------------------------------
 #
 # DATA_MODE controls where the input data is read from:
-#   "legacy"    — read the local RData and per-tissue TSVs that produced
-#                 the manuscript figures (deterministic, fast, requires the
-#                 derived assets to be in data/ already).
-#   "salmobase" — read directly from Salmobase. DevMap RNA is a single TSV
-#                 per species; BodyMap RNA is per-tissue and the loader
-#                 pulls the seven tissue TSVs and concatenates them.
-#                 SOM fits are then redone from scratch and the resulting
-#                 unit numbering will differ slightly from the manuscript.
+#   "legacy"    — read the deposited normalised matrices (data/norm/) and
+#                 the deposited SOM unit assignments (data/soms/) that
+#                 produced the manuscript figures. Skips RNA-seq loading
+#                 entirely; everything downstream of normalisation is
+#                 reproduced bit-for-bit. The orthogroup table is fetched
+#                 from Salmobase on first use (cached locally).
+#   "salmobase" — read the per-tissue / per-stage RNA-seq TPM matrices
+#                 directly from Salmobase URLs and re-fit the SOMs from
+#                 scratch. SOM unit numbering will differ slightly from
+#                 the manuscript because kohonen::som is not bit-stable
+#                 across BLAS builds.
 #
 # TEST_MODE = TRUE shortens the slow chunks (permutations, bootstraps) so
 # the pipeline can be exercised end-to-end in minutes rather than hours.
@@ -25,8 +28,42 @@ TEST_MODE <- getOption("aquafaang.test", FALSE)
 stopifnot(DATA_MODE %in% c("legacy", "salmobase"))
 
 # -----------------------------------------------------------------------------
-# Packages
+# Packages — auto-install on a fresh R session.
 # -----------------------------------------------------------------------------
+# Union of every CRAN/Bioc dependency used anywhere in this notebook tree
+# (00..06, 99a/99b, 99_helpers, scripts/). Listed once at the entry point
+# so a user with a clean R install can knit the pipeline without first
+# hand-installing dependencies.
+.cran_pkgs <- c(
+  "tidyverse", "data.table", "foreach", "kohonen", "uwot", "circlize",
+  "viridis", "viridisLite", "gridExtra", "ggalluvial", "scales", "broom",
+  "cowplot", "ggridges", "ggtext", "magick", "patchwork", "UpSetR"
+)
+.bioc_pkgs <- c(
+  "ComplexHeatmap", "preprocessCore", "AnnotationForge", "biomaRt",
+  "clusterProfiler"
+)
+.ensure_pkgs <- function(cran = character(), bioc = character()) {
+  miss_cran <- cran[!vapply(cran, requireNamespace,
+                            logical(1), quietly = TRUE)]
+  miss_bioc <- bioc[!vapply(bioc, requireNamespace,
+                            logical(1), quietly = TRUE)]
+  if (length(miss_cran)) {
+    message("[setup] installing CRAN packages: ",
+            paste(miss_cran, collapse = ", "))
+    install.packages(miss_cran, repos = "https://cloud.r-project.org")
+  }
+  if (length(miss_bioc)) {
+    if (!requireNamespace("BiocManager", quietly = TRUE)) {
+      install.packages("BiocManager", repos = "https://cloud.r-project.org")
+    }
+    message("[setup] installing Bioconductor packages: ",
+            paste(miss_bioc, collapse = ", "))
+    BiocManager::install(miss_bioc, ask = FALSE, update = FALSE)
+  }
+}
+.ensure_pkgs(.cran_pkgs, .bioc_pkgs)
+
 suppressPackageStartupMessages({
   library(tidyverse)
   library(data.table)
@@ -82,16 +119,17 @@ if (DATA_MODE == "salmobase") SOM_LOAD_LEGACY <- FALSE
 paths <- list(
   mode = DATA_MODE,
 
+  # Local deposited derived assets. Both modes use these for reproducible
+  # figure reproduction; salmobase mode also overwrites them with re-fit
+  # versions when re-running from raw RNA-seq.
   legacy = list(
-    soms               = "data/original_soms/soms.RData",
-    norm               = "data/original_norm_files/norm.RData",
-    devmap_salmon      = "data/devmap/salmon/rsem.merged.gene_tpm.tsv",
-    devmap_trout       = "data/devmap/trout/rsem.merged.gene_tpm.tsv",
-    bodymap_salmon_dir = "data/bodymap/salmon",
-    bodymap_trout_dir  = "data/bodymap/trout",
-    orthogroups        = "data/orthogroups/SalmonTroutOrthologs.tsv"
+    norm_dir = "data/norm",
+    soms_dir = "data/soms"
   ),
 
+  # Remote RNA-seq inputs + orthogroups. Always fetched from Salmobase —
+  # we do not ship the raw TPM matrices or the orthogroup table in the
+  # repository.
   salmobase = list(
     devmap_salmon = "https://salmobase.org/datafiles/datasets/Aqua-Faang/nfcore/AtlanticSalmon/DevMap/RNA/results/star_rsem/rsem.merged.gene_tpm.tsv",
     devmap_trout  = "https://salmobase.org/datafiles/datasets/Aqua-Faang/nfcore/RainbowTrout/DevMap/RNA/results/star_rsem/rsem.merged.gene_tpm.tsv",
@@ -108,28 +146,19 @@ paths <- list(
     orthogroups = "https://salmobase.org/datafiles/datasets/Aqua-Faang/salmon-trout-orthologs/SalmonTroutOrthologs.tsv"
   )
 )
-paths$active <- paths[[DATA_MODE]]
-
-# -----------------------------------------------------------------------------
-# Workspace bootstrap — create the directories the notebooks write into.
-# -----------------------------------------------------------------------------
-for (d in c("data", "data/orthogroups",
-            "data/original_soms", "data/original_norm_files",
-            "data/devmap/salmon", "data/devmap/trout",
-            "data/bodymap/salmon", "data/bodymap/trout",
-            "data/derived",
-            "results", "cache")) {
-  if (!dir.exists(d)) dir.create(d, recursive = TRUE)
+# Both modes need the salmobase URLs (orthogroups is always fetched from
+# there); legacy mode additionally exposes the local deposited assets.
+paths$active <- if (DATA_MODE == "legacy") {
+  c(paths$legacy, paths$salmobase["orthogroups"])
+} else {
+  paths$salmobase
 }
 
-# Seed the orthogroups TSV from Salmobase if it is not already in place.
-# 12 MB; downloads once, written to data/orthogroups/ as-is so legacy mode
-# does not need to know about the URL after the first run.
-if (!file.exists(paths$legacy$orthogroups)) {
-  message("[setup] orthogroups TSV missing locally; fetching from Salmobase")
-  utils::download.file(paths$salmobase$orthogroups,
-                       paths$legacy$orthogroups,
-                       mode = "wb", quiet = FALSE)
+# -----------------------------------------------------------------------------
+# Workspace bootstrap — create only the dirs notebooks WRITE into.
+# -----------------------------------------------------------------------------
+for (d in c("data/derived", "results", "cache")) {
+  if (!dir.exists(d)) dir.create(d, recursive = TRUE)
 }
 
 message(sprintf("[setup] DATA_MODE = %s   TEST_MODE = %s   N_PERMUTATIONS = %d",

@@ -54,7 +54,7 @@ Rough wall times in `legacy` mode:
 - `02_soms.Rmd`: seconds when loading; ~10 minutes when re-fitting in
   `salmobase` mode.
 - `03_figure2.Rmd`: ~1 minute.
-- `04_ohnolog_coclustering.Rmd`: ~40 minutes.
+- `04_ohnolog_coclustering.Rmd`: ~1 minute.
 - `05_observed_expected.Rmd`: ~3 hours per permutation block in production,
   about a minute with `TEST_MODE = TRUE` (100 permutations instead of
   10,000).
@@ -66,13 +66,18 @@ Two modes are supported, serving two different reproducibility goals.
 
 ### `paths$mode = "legacy"` — identical figure reproduction
 
-Reads the exact derived assets used to produce the manuscript figures:
-`data/original_soms/soms.RData`, `data/original_norm_files/norm.RData`,
-the per-stage TSVs in `data/devmap/{salmon,trout}/`, and the per-tissue
-TSVs in `data/bodymap/{salmon,trout}/`. Knitting in this mode reproduces
-every panel bit-for-bit (within RNG-free chunks), without running the
-upstream normalisation or SOM fits. Use this if you want to verify the
-published figures and trace them back to a fixed analysis state.
+Reads the deposited normalised expression matrices
+(`data/norm/{sd,td,sb,tb}_norm.tsv.gz`) and the deposited SOM unit
+assignments + per-unit summary tables (`data/soms/*.tsv.gz` plus the
+per-SOM `*_stage_levels.txt`). Knitting in this mode skips the RNA-seq
+loading + normalisation step entirely and feeds the saved matrices /
+unit assignments straight into the downstream pipeline, reproducing
+every panel bit-for-bit (within RNG-free chunks). The orthogroup table
+is still fetched from Salmobase on first use; everything else is local.
+
+The raw TPM TSVs that produced these matrices are not redistributed
+here — they are large and unchanged on Salmobase. Run `salmobase` mode
+if you want to re-derive the matrices from the upstream TPMs.
 
 ### `paths$mode = "salmobase"` — independent biological replication
 
@@ -97,12 +102,14 @@ appearance and exact significance values will differ slightly.
 
 ## Reproducibility
 
-The SOMs in `data/original_soms/soms.RData` were fit on R 4.1.3 (Windows)
-with `set.seed(387334)`. The `kohonen` RNG path is identical on modern R
-but BLAS-level floating-point ordering means that a fresh fit on macOS or
-Linux will produce different unit-to-gene assignments. The notebooks
-therefore default to loading the deposited SOMs; the regeneration chunks
-in `02_soms.Rmd` are gated behind a `regenerate` flag.
+The SOMs whose unit assignments are deposited under `data/soms/` were
+fit on R 4.1.3 (Windows) with `set.seed(387334)`. The `kohonen` RNG path
+is identical on modern R but BLAS-level floating-point ordering means
+that a fresh fit on macOS or Linux will produce different unit-to-gene
+assignments. The notebooks therefore default to reconstructing the
+deposited SOMs from the gzipped TSVs; the regeneration chunks in
+`02_soms.Rmd` are gated behind `salmobase` mode and write a sibling
+`*_regen` set so the deposited files stay intact.
 
 The observed/expected permutation in `05_observed_expected.Rmd` does not
 set a seed, so the empirical p-values drift slightly at the 1e-6 floor

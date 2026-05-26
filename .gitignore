@@ -23,3 +23,13 @@ transcriptome-analysis/data/devmap/trout/rsem.merged.gene_counts.tsv
 # transcriptome-analysis — OrgDB annotation packages built locally by 99a/99b
 transcriptome-analysis/org.Ssalar.eg.db/
 transcriptome-analysis/org.Omykiss.eg.db/
+
+# chromatin-accesibility-clustering-and-visualization — local ATAC working
+# state: per-species consensus_expression RDS files (materialised from the
+# OneDrive bundles by scripts/extract_legacy_consensus_expression_rdata.R),
+# the Salmobase bigBed peak download cache, the derived per-context matrices
+# and the rendered results.
+chromatin-accesibility-clustering-and-visualization/data/atac/
+chromatin-accesibility-clustering-and-visualization/data/derived/
+chromatin-accesibility-clustering-and-visualization/cache/
+chromatin-accesibility-clustering-and-visualization/results/

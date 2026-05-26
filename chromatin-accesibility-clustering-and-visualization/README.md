@@ -48,6 +48,34 @@ Reads the exact derived assets used to produce the manuscript figures:
 Knitting in this mode reproduces every ATAC panel from the fixed analysis
 state used in the manuscript.
 
+The per-context IDR-consensus peak sets are fetched on the fly from
+Salmobase as bigBed (`.bb`) files; URLs are baked into
+`00_setup.Rmd::paths$idr_*_urls`. The downloads are cached under
+`cache/atac_peaks/` (git-ignored) so re-knits do not re-hit the
+network. Canonical file lists:
+
+- <https://salmobase.org/datafiles/datasets/Aqua-Faang/robust_ATAC_peaks/salmon_files.txt>
+- <https://salmobase.org/datafiles/datasets/Aqua-Faang/robust_ATAC_peaks/trout_files.txt>
+
+The per-species consensus-expression RDS files are **not** redistributed
+in this repository — they are several hundred MB each and the lab is
+still discussing where to host them (Zenodo DOI vs regeneration from
+Salmobase BAMs via `robust-open-chromatin/09_unified_expression.sh` +
+`10_unified_expression_combined.R`). In the meantime, the manuscript
+state of these tables lives on OneDrive as `Ssal_Figure_2.RData` and
+`Omyk_Figure_2.RData`. To populate `data/atac/` for a local run:
+
+```r
+options(
+  aquafaang.ssal_rdata = "<path>/Ssal_Figure_2.RData",
+  aquafaang.omyk_rdata = "<path>/Omyk_Figure_2.RData",
+  aquafaang.atac_out   = "data/atac"
+)
+source("scripts/extract_legacy_consensus_expression_rdata.R")
+```
+
+`data/atac/`, `data/derived/`, `results/`, and `cache/` are git-ignored.
+
 ### `paths$mode = "salmobase"` — independent biological replication
 
 The Salmobase ATAC trees publish only the upstream nf-core alignment

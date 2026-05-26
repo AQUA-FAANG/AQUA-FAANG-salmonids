@@ -45,7 +45,7 @@ their union to the set of regions that pass IDR in at least one sample of
 each context.
 
 ```{r load_consensus_expression_salmon}
-ssal_consensus_expression <- readr::read_rds(paths$legacy$consensus_expression_salmon)
+ssal_consensus_expression <- readr::read_rds(paths$consensus_expression_salmon)
 
 union_peaks_salmon <- ssal_consensus_expression %>%
   dplyr::rename(seqnames = chr) %>%
@@ -56,14 +56,14 @@ union_peaks_salmon <- ssal_consensus_expression %>%
 ```
 
 ```{r load_idr_peaks_salmon_bodymap}
-bodyMap_idr_salmon <- load_idr_dir(paths$legacy$idr_bodymap_salmon_dir,
-                                   species_prefix = "AtanticSalmon_ATAC_")
+bodyMap_idr_salmon <- load_idr_urls(paths$idr_bodymap_salmon_urls,
+                                    species_prefix = "AtlanticSalmon_ATAC_")
 bodyMap_union_salmon <- union_granges(bodyMap_idr_salmon)
 ```
 
 ```{r load_idr_peaks_salmon_devmap}
-devMap_idr_salmon <- load_idr_dir(paths$legacy$idr_devmap_salmon_dir,
-                                  species_prefix = "")
+devMap_idr_salmon <- load_idr_urls(paths$idr_devmap_salmon_urls,
+                                   species_prefix = "AtlanticSalmon_ATAC_")
 devMap_union_salmon <- union_granges(devMap_idr_salmon)
 ```
 
@@ -93,19 +93,15 @@ bodyMap_in_mat_salmon <- build_scaled_fe_matrix(
 save(devMap_in_mat_salmon, bodyMap_in_mat_salmon,
      devMap_idx_salmon, bodyMap_idx_salmon,
      union_peaks_salmon,
-     file = file.path(paths$legacy$derived_dir, "atac_matrices_salmon.RData"))
+     file = file.path(paths$derived_dir, "atac_matrices_salmon.RData"))
 ```
 
 # Trout
 
 ## Load the consensus expression table and IDR peak unions
 
-The trout BodyMap IDR BEDs carry extra ChromHMM annotation columns; we read
-them through the dedicated `read_trout_bodymap_bed` helper rather than
-rtracklayer::import.
-
 ```{r load_consensus_expression_trout}
-omyk_consensus_expression <- readr::read_rds(paths$legacy$consensus_expression_trout)
+omyk_consensus_expression <- readr::read_rds(paths$consensus_expression_trout)
 
 union_peaks_trout <- omyk_consensus_expression %>%
   dplyr::rename(seqnames = chr) %>%
@@ -116,15 +112,14 @@ union_peaks_trout <- omyk_consensus_expression %>%
 ```
 
 ```{r load_idr_peaks_trout_bodymap}
-bodyMap_idr_trout <- load_idr_dir(paths$legacy$idr_bodymap_trout_dir,
-                                  species_prefix = "RainbowTrout_ATAC_",
-                                  reader = read_trout_bodymap_bed)
+bodyMap_idr_trout <- load_idr_urls(paths$idr_bodymap_trout_urls,
+                                   species_prefix = "RainbowTrout_ATAC_")
 bodyMap_union_trout <- union_granges(bodyMap_idr_trout)
 ```
 
 ```{r load_idr_peaks_trout_devmap}
-devMap_idr_trout <- load_idr_dir(paths$legacy$idr_devmap_trout_dir,
-                                 species_prefix = "")
+devMap_idr_trout <- load_idr_urls(paths$idr_devmap_trout_urls,
+                                  species_prefix = "RainbowTrout_ATAC_")
 devMap_union_trout <- union_granges(devMap_idr_trout)
 ```
 
@@ -150,5 +145,5 @@ bodyMap_in_mat_trout <- build_scaled_fe_matrix(
 save(devMap_in_mat_trout, bodyMap_in_mat_trout,
      devMap_idx_trout, bodyMap_idx_trout,
      union_peaks_trout,
-     file = file.path(paths$legacy$derived_dir, "atac_matrices_trout.RData"))
+     file = file.path(paths$derived_dir, "atac_matrices_trout.RData"))
 ```

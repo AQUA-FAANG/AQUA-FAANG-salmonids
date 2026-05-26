@@ -14,12 +14,13 @@ output:
 
 Provides the four self-organising maps used throughout the paper: a 4×4
 DevMap SOM and a 6×6 BodyMap SOM for each species, both on a hexagonal
-grid. In `legacy` mode the SOMs are loaded from
-`data/original_soms/soms.RData` (the canonical objects that produced the
-manuscript figures). In `salmobase` mode they are re-fit from the
-normalised matrices produced in `01_data_loading.Rmd`; unit assignments
-will differ from the manuscript because `kohonen::som` is not bit-stable
-across BLAS builds.
+grid. In `legacy` mode the SOMs are reconstructed from the deposited
+per-gene unit assignments and per-unit summary tables under `data/soms/`
+— only the fields actually consumed downstream (`som$unit.classif` and
+`stat`) are reified, which is enough for every notebook in this tree.
+In `salmobase` mode the SOMs are re-fit from the normalised matrices
+produced in `01_data_loading.Rmd`; unit assignments will differ from the
+manuscript because `kohonen::som` is not bit-stable across BLAS builds.
 
 ```{r setup_chain, include=FALSE}
 source("R/setup.R")
@@ -55,13 +56,36 @@ tb_som <- get_som_bodymap(tb_norm, 6, 6, order_indices = indices_order_omyk)
 
 ## Load deposited SOM objects (legacy mode only)
 
-`soms.RData` carries `sd_som`, `td_som`, `sb_som`, `tb_som`. The BodyMap
-stat tables are then reordered so the stage factor reflects the canonical
-tissue grouping; without this re-levelling the BodyMap heatmaps and bar
-panels render with the columns out of order.
+Reconstructs `sd_som`, `td_som`, `sb_som`, `tb_som` from the deposited
+per-gene unit assignments (`{tag}_unit_classif.tsv.gz`) and per-unit
+summary tables (`{tag}_unit_stats.tsv.gz` + `{tag}_stage_levels.txt`).
+The reconstructed objects carry only the fields the rest of the
+pipeline reads (`$som$unit.classif` and `$stat`); the kohonen prototype
+codes, distance matrices, etc. are not needed downstream and are
+omitted. The BodyMap stat tables are then re-levelled so the stage
+factor reflects the canonical tissue grouping; without this the
+BodyMap heatmaps and bar panels render with the columns out of order.
 
 ```{r load_legacy_soms, eval=SOM_LOAD_LEGACY}
-load(paths$legacy$soms)
+load_legacy_som <- function(tag) {
+  d <- paths$legacy$soms_dir
+  uc <- readr::read_tsv(file.path(d, paste0(tag, "_unit_classif.tsv.gz")),
+                        show_col_types = FALSE)
+  st <- readr::read_tsv(file.path(d, paste0(tag, "_unit_stats.tsv.gz")),
+                        show_col_types = FALSE)
+  stage_levels <- readLines(file.path(d, paste0(tag, "_stage_levels.txt")))
+  class_levels <- stringr::str_sort(unique(as.character(st$class)),
+                                    numeric = TRUE)
+  st$class <- factor(st$class, levels = class_levels)
+  st$stage <- factor(st$stage, levels = stage_levels)
+  list(som = list(unit.classif = as.integer(uc$unit)),
+       stat = tibble::as_tibble(st))
+}
+
+sd_som <- load_legacy_som("sd")
+td_som <- load_legacy_som("td")
+sb_som <- load_legacy_som("sb")
+tb_som <- load_legacy_som("tb")
 
 lev <- levels(sb_som$stat$stage)
 lev_order <- lev[c(3:6, 7:8, 1:2, 9:28)]
@@ -96,10 +120,25 @@ tb_som_info <- som_file_info_b(tb_som)
 
 ## Persist SOMs (salmobase mode)
 
-When the SOMs were just re-fit, write them to a sibling `soms_regen.RData`
-so the legacy file stays intact.
+When the SOMs were just re-fit, write the per-gene unit assignments and
+per-unit stat tables to a sibling `data/soms/*_regen.tsv.gz` set so the
+deposited files stay intact. Anyone who wants the full kohonen objects
+in this mode can grab them from `globalenv()` while the session is live.
 
 ```{r save_som_objects, eval=!SOM_LOAD_LEGACY}
-save(sd_som, td_som, sb_som, tb_som,
-     file = sub("\\.RData$", "_regen.RData", paths$legacy$soms))
+out_dir <- "data/soms"
+if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
+for (tag in c("sd", "td", "sb", "tb")) {
+  som_obj <- get(paste0(tag, "_som"))
+  norm_m  <- get(paste0(tag, "_norm"))
+  readr::write_tsv(
+    tibble::tibble(gene_id = rownames(norm_m),
+                   unit    = as.integer(som_obj$som$unit.classif)),
+    file.path(out_dir, paste0(tag, "_unit_classif_regen.tsv.gz")))
+  st <- as.data.frame(som_obj$stat)
+  st$class <- as.character(st$class); st$stage <- as.character(st$stage)
+  readr::write_tsv(st, file.path(out_dir, paste0(tag, "_unit_stats_regen.tsv.gz")))
+  writeLines(levels(som_obj$stat$stage),
+             file.path(out_dir, paste0(tag, "_stage_levels_regen.txt")))
+}
 ```

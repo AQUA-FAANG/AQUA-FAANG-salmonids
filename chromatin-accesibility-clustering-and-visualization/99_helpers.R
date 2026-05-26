@@ -2,44 +2,45 @@
 
 # === I/O ===
 
-#' Load IDR consensus BEDs from a directory into a named list of GRanges.
+#' Download (if needed) and load a list of Salmobase IDR-consensus peak
+#' BED files into a named list of GRanges.
 #'
-#' Wrapper around rtracklayer::import that strips the
-#' "<Species>_ATAC_" prefix and the "_consensus_peaks.bed" suffix from the
-#' file names so the resulting list is keyed by tissue / stage labels.
+#' Salmobase publishes these as 14-column extended BEDs carrying
+#' ChromHMM annotations beyond standard BED6, so we read only the first
+#' three columns (chrom, start, end) — that is all the downstream
+#' `union_granges() / findOverlaps()` calls need. Files are cached under
+#' `cache_dir` keyed by basename so subsequent runs do not re-hit the
+#' network.
 #'
-#' @param dir directory containing the IDR consensus BED files.
-#' @param species_prefix prefix to remove from each file basename (e.g.
-#'   "AtanticSalmon_ATAC_" or "RainbowTrout_ATAC_"). The misspelling of
-#'   "AtanticSalmon" reproduces the legacy file naming.
-#' @param reader function used to read each BED. Defaults to
-#'   rtracklayer::import; pass a tsv reader for trout BodyMap BEDs that have
-#'   extra annotation columns.
-load_idr_dir <- function(dir, species_prefix = "", reader = rtracklayer::import) {
-  files <- list.files(dir, pattern = "\\.bed$", full.names = TRUE)
-  if (!length(files)) {
-    stop("No .bed files found in ", dir)
+#' @param urls character vector of Salmobase .bed URLs.
+#' @param species_prefix prefix to strip from each basename when building
+#'   list names — e.g. "AtlanticSalmon_ATAC_" or "RainbowTrout_ATAC_".
+#' @param cache_dir local directory to stash downloaded .bed files in.
+load_idr_urls <- function(urls,
+                          species_prefix = "",
+                          cache_dir = "cache/atac_peaks/") {
+  if (!dir.exists(cache_dir)) dir.create(cache_dir, recursive = TRUE)
+  out <- lapply(urls, function(u) {
+    dst <- file.path(cache_dir, basename(u))
+    if (!file.exists(dst)) {
+      utils::download.file(u, dst, mode = "wb", quiet = TRUE)
+    }
+    tbl <- readr::read_tsv(dst, col_names = FALSE, col_select = 1:3,
+                           col_types = "cii",
+                           show_col_types = FALSE)
+    GenomicRanges::makeGRangesFromDataFrame(
+      data.frame(seqnames = tbl[[1]],
+                 start    = tbl[[2]],
+                 end      = tbl[[3]]),
+      starts.in.df.are.0based = TRUE
+    )
+  })
+  bases <- sub("\\.(bb|bed|narrowPeak)$", "", basename(urls))
+  if (nzchar(species_prefix)) {
+    bases <- sub(species_prefix, "", bases, fixed = TRUE)
   }
-  out <- lapply(files, reader)
-  names(out) <- sub("_consensus_peaks\\.bed$", "",
-                    sub(species_prefix, "", basename(files), fixed = TRUE))
+  names(out) <- bases
   out
-}
-
-#' Reader for the trout BodyMap IDR BEDs, which carry extra ChromHMM columns
-#' beyond the standard BED6.
-read_trout_bodymap_bed <- function(x) {
-  tbl <- readr::read_tsv(
-    x,
-    col_names = c("seqnames", "start", "end", "name",
-                  "score", "strand", "tickStart", "tickEnd", "itemRgb",
-                  "no_idea_1", "no_idea_2", "no_idea_3", "Replicates",
-                  "ChromHMM_annotation"),
-    show_col_types = FALSE
-  )
-  GenomicRanges::makeGRangesFromDataFrame(
-    tbl, keep.extra.columns = TRUE, starts.in.df.are.0based = TRUE
-  )
 }
 
 #' Reduce a list of GRanges into a single union (non-overlapping intervals).

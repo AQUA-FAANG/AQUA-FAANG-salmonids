@@ -26,9 +26,9 @@ and matrices produced by `01_atac_loading.Rmd` and `02_atac_soms.Rmd`.
 ```{r source_setup}
 source("99_helpers.R")
 if (!exists("paths")) knitr::knit("00_setup.Rmd", output = tempfile())
-load(file.path(paths$legacy$derived_dir, "atac_matrices_salmon.RData"))
-load(file.path(paths$legacy$derived_dir, "atac_matrices_trout.RData"))
-load(file.path(paths$legacy$derived_dir, "atac_soms.RData"))
+load(file.path(paths$derived_dir, "atac_matrices_salmon.RData"))
+load(file.path(paths$derived_dir, "atac_matrices_trout.RData"))
+load(file.path(paths$derived_dir, "atac_soms.RData"))
 
 pal_intensity <- circlize::colorRamp2(c(0:2), viridis::cividis(3)[0:3])
 ```
@@ -223,8 +223,8 @@ atac_umaps <- gridExtra::grid.arrange(
   nrow = 1
 )
 
-dir.create(paths$legacy$results_dir, showWarnings = FALSE, recursive = TRUE)
-pdf(file.path(paths$legacy$results_dir, "figure2_atac.pdf"),
+dir.create(paths$results_dir, showWarnings = FALSE, recursive = TRUE)
+pdf(file.path(paths$results_dir, "figure2_atac.pdf"),
     width = 16, height = 10)
 gridExtra::grid.arrange(atac_heatmaps, atac_umaps, ncol = 1,
                         heights = c(2, 1))

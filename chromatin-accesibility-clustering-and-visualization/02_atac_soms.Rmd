@@ -28,8 +28,8 @@ written to `data/derived/atac_soms.RData`.
 ```{r source_setup}
 source("99_helpers.R")
 if (!exists("paths")) knitr::knit("00_setup.Rmd", output = tempfile())
-load(file.path(paths$legacy$derived_dir, "atac_matrices_salmon.RData"))
-load(file.path(paths$legacy$derived_dir, "atac_matrices_trout.RData"))
+load(file.path(paths$derived_dir, "atac_matrices_salmon.RData"))
+load(file.path(paths$derived_dir, "atac_matrices_trout.RData"))
 ```
 
 ## Seed lock
@@ -143,5 +143,5 @@ save(devMap_atac_som_salmon,  devMap_atac_som_trout,
      ribbon_bodymap_salmon, ribbon_bodymap_trout,
      devMap_umap_salmon,  devMap_umap_trout,
      bodyMap_umap_salmon, bodyMap_umap_trout,
-     file = file.path(paths$legacy$derived_dir, "atac_soms.RData"))
+     file = file.path(paths$derived_dir, "atac_soms.RData"))
 ```

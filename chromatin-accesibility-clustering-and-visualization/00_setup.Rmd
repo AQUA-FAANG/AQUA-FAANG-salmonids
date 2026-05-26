@@ -39,6 +39,30 @@ tidyverse + viridis pair supports data wrangling and the perceptually uniform
 colour scales.
 
 ```{r r_packages}
+.cran_pkgs <- c("circlize", "tidyverse", "viridis", "data.table", "gtable",
+                "gridExtra", "kohonen", "uwot", "cluster", "aweSOM")
+.bioc_pkgs <- c("ComplexHeatmap", "plyranges", "rtracklayer", "GenomicRanges")
+.ensure_pkgs <- function(cran = character(), bioc = character()) {
+  miss_cran <- cran[!vapply(cran, requireNamespace,
+                            logical(1), quietly = TRUE)]
+  miss_bioc <- bioc[!vapply(bioc, requireNamespace,
+                            logical(1), quietly = TRUE)]
+  if (length(miss_cran)) {
+    message("[setup] installing CRAN packages: ",
+            paste(miss_cran, collapse = ", "))
+    install.packages(miss_cran, repos = "https://cloud.r-project.org")
+  }
+  if (length(miss_bioc)) {
+    if (!requireNamespace("BiocManager", quietly = TRUE)) {
+      install.packages("BiocManager", repos = "https://cloud.r-project.org")
+    }
+    message("[setup] installing Bioconductor packages: ",
+            paste(miss_bioc, collapse = ", "))
+    BiocManager::install(miss_bioc, ask = FALSE, update = FALSE)
+  }
+}
+.ensure_pkgs(.cran_pkgs, .bioc_pkgs)
+
 suppressPackageStartupMessages({
   library(circlize)
   library(tidyverse)
@@ -69,29 +93,58 @@ this mode is the entry point for a from-raw biological replication via
 that pipeline.
 
 ```{r paths_config}
+# Salmobase robust ATAC peak files (per-condition IDR-consensus bigBeds)
+# are the authoritative source for the per-context peak sets. The
+# canonical lists live at:
+#   https://salmobase.org/datafiles/datasets/Aqua-Faang/robust_ATAC_peaks/{salmon,trout}_files.txt
+# We hard-code the URL set here so the notebook does not need to parse the
+# index on every knit; the index file is also written to data/derived/ for
+# provenance.
+.peaks_root <- "https://salmobase.org/datafiles/datasets/Aqua-Faang/robust_ATAC_peaks/annotated_peaks"
+
+.salmon_bodymap_conds <- c(
+  "Brain_Immature_Female",  "Brain_Immature_Male",
+  "Brain_Mature_Female",    "Brain_Mature_Male",
+  "Gonad_Immature_Female",  "Gonad_Immature_Male",
+  "Gonad_Mature_Female",    "Gonad_Mature_Male",
+  "Liver_Immature_Female",  "Liver_Immature_Male",
+  "Liver_Mature_Female",    "Liver_Mature_Male",
+  "Muscle_Immature_Female", "Muscle_Immature_Male",
+  "Muscle_Mature_Female",   "Muscle_Mature_Male"
+)
+.trout_bodymap_conds <- c(
+  "Brain_Immature_Female",  "Brain_Immature_Male",
+  "Brain_Mature_Female",    "Brain_Mature_Male",
+  "Liver_Immature_Female",  "Liver_Immature_Male",
+  "Liver_Mature_Female",    "Liver_Mature_Male",
+  "Muscle_Immature_Female", "Muscle_Immature_Male",
+  "Muscle_Mature_Female",   "Muscle_Mature_Male"
+)
+.devmap_stages <- c("LateBlastulation", "MidGastrulation",
+                    "EarlySomitogenesis", "MidSomitogenesis",
+                    "LateSomitogenesis")
+
 paths <- list(
-  mode = "legacy",
-  legacy = list(
-    consensus_expression_salmon = "data/atac/AtlanticSalmon_consensus_expression.RDS",
-    consensus_expression_trout  = "data/atac/RainbowTrout_consensus_expression.RDS",
-    idr_bodymap_salmon_dir = "data/atac/bodymap_idr/salmon/",
-    idr_devmap_salmon_dir  = "data/atac/devmap_idr/salmon/",
-    idr_bodymap_trout_dir  = "data/atac/bodymap_idr/trout/",
-    idr_devmap_trout_dir   = "data/atac/devmap_idr/trout/",
-    derived_dir            = "data/derived/",
-    results_dir            = "results/"
-  ),
-  salmobase = list(
-    # Browse-only: Salmobase publishes nf-core align outputs only.
-    salmon_devmap_atac  = "https://salmobase.org/datafiles/datasets/Aqua-Faang/nfcore/AtlanticSalmon/DevMap/ATAC/results/",
-    salmon_bodymap_atac = "https://salmobase.org/datafiles/datasets/Aqua-Faang/nfcore/AtlanticSalmon/BodyMap/ATAC/results/",
-    trout_devmap_atac   = "https://salmobase.org/datafiles/datasets/Aqua-Faang/nfcore/RainbowTrout/DevMap/ATAC/results/",
-    trout_bodymap_atac  = "https://salmobase.org/datafiles/datasets/Aqua-Faang/nfcore/RainbowTrout/BodyMap/ATAC/results/"
-  )
+  consensus_expression_salmon = "data/atac/AtlanticSalmon_consensus_expression.RDS",
+  consensus_expression_trout  = "data/atac/RainbowTrout_consensus_expression.RDS",
+  idr_bodymap_salmon_urls = sprintf(
+    "%s/AtlanticSalmon/BodyMap/AtlanticSalmon_ATAC_%s.bed",
+    .peaks_root, .salmon_bodymap_conds),
+  idr_devmap_salmon_urls = sprintf(
+    "%s/AtlanticSalmon/DevMap/AtlanticSalmon_ATAC_%s.bed",
+    .peaks_root, .devmap_stages),
+  idr_bodymap_trout_urls = sprintf(
+    "%s/RainbowTrout/BodyMap/RainbowTrout_ATAC_%s.bed",
+    .peaks_root, .trout_bodymap_conds),
+  idr_devmap_trout_urls = sprintf(
+    "%s/RainbowTrout/DevMap/RainbowTrout_ATAC_%s.bed",
+    .peaks_root, .devmap_stages),
+  derived_dir = "data/derived/",
+  results_dir = "results/"
 )
 
-dir.create(paths$legacy$derived_dir, showWarnings = FALSE, recursive = TRUE)
-dir.create(paths$legacy$results_dir, showWarnings = FALSE, recursive = TRUE)
+dir.create(paths$derived_dir, showWarnings = FALSE, recursive = TRUE)
+dir.create(paths$results_dir, showWarnings = FALSE, recursive = TRUE)
 ```
 
 ## Helpers
