@@ -3,6 +3,7 @@
 
 # knitr / rmarkdown caches, figure scratch and rendered notebook output
 *_cache/
+*_files/
 figure/
 *.html
 

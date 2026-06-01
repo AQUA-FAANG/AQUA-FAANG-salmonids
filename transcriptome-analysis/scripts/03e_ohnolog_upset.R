@@ -27,7 +27,6 @@
 #                              by the intersection list, not by `sets`.
 #   We want dev-stage / tissue order on the left axis, so we deliberately
 #   take path (a) and let `order.by = "freq"` handle the top-bar sort.
-#   (Also recorded in ~/.claude memory: `feedback_upsetr_colors.md`.)
 #
 # Key choices
 #   * All bars black; no grey/black split, no query overlays. The prior
