@@ -53,9 +53,10 @@ union_granges <- function(gr_list) {
 #' then each region is z-scaled across samples (center = FALSE, scale = SD).
 build_scaled_fe_matrix <- function(expression_df, atac_col_idx) {
   fe <- expression_df %>%
-    dplyr::select(dplyr::contains("ATAC")) %>%
-    dplyr::select(dplyr::all_of(atac_col_idx)) %>%
-    dplyr::mutate(dplyr::across(dplyr::everything(), ~ .x / mean(.x)))
+    dplyr::select(dplyr::contains("ATAC")) %>%            # keep only ATAC columns
+    dplyr::select(dplyr::all_of(atac_col_idx)) %>%        # subset to this context
+    dplyr::mutate(dplyr::across(dplyr::everything(), ~ .x / mean(.x)))  # fold enrichment vs column mean
+  # Transpose so scale() works per region, z-scale (SD only, no centering), transpose back.
   fe %>% as.matrix() %>% t() %>% scale(center = FALSE) %>% t()
 }
 
@@ -69,9 +70,9 @@ build_scaled_fe_matrix <- function(expression_df, atac_col_idx) {
 #' @param xdim,ydim grid dimensions; default 5 x 5.
 #' @param seed integer seed; default 12345 to match the manuscript.
 fit_atac_som <- function(in_mat, xdim = 5, ydim = 5, seed = 12345) {
-  set.seed(seed)
-  init <- aweSOM::somInit(traindat = in_mat, xdim, ydim)
-  set.seed(seed)
+  set.seed(seed)                                          # seed the PCA-based init
+  init <- aweSOM::somInit(traindat = in_mat, xdim, ydim)  # deterministic starting codes
+  set.seed(seed)                                          # re-seed so training is reproducible
   kohonen::som(in_mat,
                grid = kohonen::somgrid(xdim, ydim, "hexagonal"),
                init = init)
@@ -83,11 +84,14 @@ fit_atac_som <- function(in_mat, xdim = 5, ydim = 5, seed = 12345) {
 get_som <- function(in_mat, xdim, ydim, somvar) {
   som_obj <- somvar
 
+  # Per-unit facet labels of the form "Class <id> (<n regions>)".
   label_unit <- table(som_obj$unit.classif)
   tmp_name <- names(label_unit)
   label_unit <- stringr::str_c("Class ", tmp_name, " (", label_unit, ")")
   names(label_unit) <- tmp_name
 
+  # Long tidy frame: one row per (region, sample), tagged with its SOM unit;
+  # stage/class as ordered factors so facets/axes read in the right order.
   tmp_df <- in_mat %>% as.data.frame() %>%
     {cbind(class = som_obj$unit.classif, .)} %>%
     tidyr::pivot_longer(cols = !class,
@@ -98,6 +102,7 @@ get_som <- function(in_mat, xdim, ydim, somvar) {
                                  levels = stringr::str_sort(unique(class),
                                                             numeric = TRUE)))
 
+  # Per-(unit, sample) mean and SD, the ribbon-plot summary table.
   sum_stat <- tmp_df %>% dplyr::group_by(class, stage) %>%
     dplyr::summarize(mean_value = mean(value),
                      sd = stats::sd(value),
@@ -145,10 +150,12 @@ pam_superclusters <- function(som_obj, k = 4) {
 #'   should be applied (the union of `splits_levels` and the constitutive
 #'   units, in the order they appear in the figure).
 inferno_plus_grey_palette <- function(n_dynamic, n_constitutive, order_perm) {
-  dyn  <- viridis::inferno(n_dynamic, begin = 0.285, end = 0.627)
-  cons <- rep("#becacaff", n_constitutive)
-  final_colors <- c(dyn, cons)
+  dyn  <- viridis::inferno(n_dynamic, begin = 0.285, end = 0.627)  # dynamic-unit colours
+  cons <- rep("#becacaff", n_constitutive)                          # constitutive grey
+  final_colors <- c(dyn, cons)                                      # in figure order
   total <- n_dynamic + n_constitutive
+  # Invert order_perm so the returned vector is keyed by raw SOM unit id
+  # (palette[i] = colour for unit i), as the ggplot scales expect.
   color_order_for_objects <- match(seq_len(total), order_perm)
   final_colors[color_order_for_objects]
 }
@@ -181,6 +188,7 @@ make_atac_heatmap <- function(in_mat, som, splits_levels, palette,
                               show_column_names = TRUE,
                               show_heatmap_legend = FALSE,
                               use_raster = TRUE) {
+  # Restrict rows to regions assigned to the listed (dynamic) SOM units.
   keep <- which(som$unit.classif %in% splits_levels)
   ComplexHeatmap::Heatmap(
     in_mat[keep, ],

@@ -21,9 +21,9 @@ turns them into an installable OrgDB. Run once per Ensembl release.
 ## Packages
 
 ```{r r_packages, message=FALSE, warning=FALSE}
-library(AnnotationForge)
-library(biomaRt)
-library(tidyverse)
+library(AnnotationForge)  # makeOrgPackage()
+library(biomaRt)          # getBM() Ensembl query
+library(tidyverse)        # table wrangling
 ```
 
 ## Fetch annotation from BioMart
@@ -32,6 +32,8 @@ One query for everything; we split into the three tables AnnotationForge
 needs in the next chunk.
 
 ```{r fetch_biomart, cache=TRUE}
+# One BioMart query pulling gene IDs, GO terms + evidence, symbols,
+# descriptions and chromosomes for the salmon Ensembl dataset.
 tbl <- getBM(
   attributes = c("ensembl_gene_id", "go_id", "go_linkage_type",
                  "external_gene_name", "description", "chromosome_name"),
@@ -46,6 +48,7 @@ requires non-empty GO and evidence; both filters are applied here so the
 package builder does not silently drop rows.
 
 ```{r split_tables}
+# Gene-info table (GID -> SYMBOL, GENENAME); drop rows with empty symbol/name.
 gene_info_tbl <- tbl %>%
   dplyr::select(GID = ensembl_gene_id,
                 SYMBOL = external_gene_name,
@@ -53,9 +56,11 @@ gene_info_tbl <- tbl %>%
   distinct() %>%
   filter(SYMBOL != "", GENENAME != "")
 
+# Gene -> chromosome table.
 gene_chromosome_tbl <- tbl %>%
   distinct(GID = ensembl_gene_id, CHROMOSOME = chromosome_name)
 
+# Gene -> GO table with evidence; drop rows with empty GO/evidence.
 gene_GO_tbl <- tbl %>%
   distinct(GID = ensembl_gene_id, GO = go_id, EVIDENCE = "go_linkage_type") %>%
   filter(GO != "", EVIDENCE != "")
@@ -64,6 +69,8 @@ gene_GO_tbl <- tbl %>%
 ## Build the OrgDB package
 
 ```{r build_orgdb}
+# Assemble the three tables into an installable OrgDb source package
+# (org.Ssalar.eg.db) in the working directory. tax_id 8030 = Salmo salar.
 AnnotationForge::makeOrgPackage(
   gene_info  = gene_info_tbl,
   chromosome = gene_chromosome_tbl,
@@ -81,5 +88,6 @@ AnnotationForge::makeOrgPackage(
 ## Install the built package
 
 ```{r install_orgdb}
+# Install the freshly-built package into the R library so 06_go.Rmd can load it.
 install.packages("./org.Ssalar.eg.db", repos = NULL, type = "source")
 ```

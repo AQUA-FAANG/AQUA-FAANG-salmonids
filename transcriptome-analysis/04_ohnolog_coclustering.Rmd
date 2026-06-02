@@ -18,6 +18,11 @@ RData outputs in `results/ohnolog/data/` and PDF / PNG panels in
 `results/ohnolog/panels/`. Each section below sources one script; knitting
 end-to-end reproduces every data object and figure panel.
 
+Unlike `03`/`05`/`06`, this notebook is **self-contained**: the sourced scripts
+load their own inputs (the deposited SOMs/matrices via the shared
+`load_deposited_*()` loaders, the orthogroup table + raw TPM from Salmobase), so
+`04` can be run without `01`/`02` having run first in the session.
+
 ```{r setup_chain, include=FALSE}
 source("R/setup.R")
 scripts_dir <- "scripts"

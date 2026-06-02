@@ -67,8 +67,9 @@ update_geom_defaults("text",  list(family = font_family))
 update_geom_defaults("label", list(family = font_family))
 
 # --- Paths -------------------------------------------------------------------
-# Input assets live under data/; generated outputs under results/ohnolog/.
-od_path   <- "."
+# Generated intermediates from earlier ohnolog scripts (read) + this script's
+# own output panels (written). All other inputs are loaded via the shared
+# loaders / Salmobase, not from local data/ paths.
 data_dir  <- "results/ohnolog/data"
 outdir    <- "results/ohnolog/panels"
 
@@ -126,8 +127,8 @@ save_gg <- function(fname_base, p, w, h, dpi = 300) {
 # Load per-pair table (from 03) and the row-scaled SOM-input matrices.
 # -----------------------------------------------------------------------------
 cat("Loading co-clustering results + norm matrices + gene symbols...\n")
-load(file.path(data_dir, "c1_coclustering_results.RData"))
-load(file.path(od_path, "data/original_norm_files/norm.RData"))
+load(file.path(data_dir, "c1_coclustering_results.RData"))   # written by script 03
+load_deposited_norm()   # injects sd_norm, td_norm, sb_norm, tb_norm
 
 # Optional: friendly gene symbols from biomaRt (fetch_gene_symbols.R). Fall
 # back to the last 6 characters of the Ensembl ID when a symbol is missing.
@@ -149,10 +150,11 @@ gene_symbol_lookup <- function(gid) {
 # replicate columns. We keep only the numeric replicate columns and compute
 # the per-gene mean TPM.
 # -----------------------------------------------------------------------------
-cat("Loading DevMap raw TPM...\n")
-devmap_tpm_raw <- read_tsv(
-  file.path(od_path, "data/devmap/salmon/rsem.merged.gene_tpm.tsv"),
-  show_col_types = FALSE)
+cat("Loading DevMap raw TPM (salmon) from Salmobase...\n")
+# Absolute expression magnitude comes from the Salmobase RNA-seq TPM, not from
+# the deposited normalised matrices (which carry expression SHAPE, not level).
+# read_table_anywhere() downloads once and caches under cache/.
+devmap_tpm_raw <- read_table_anywhere(paths$recompute$devmap_salmon)
 devmap_tpm_mat <- devmap_tpm_raw %>%
   select(-`transcript_id(s)`) %>%
   column_to_rownames("gene_id") %>%
@@ -172,21 +174,12 @@ devmap_stage_max_tpm <- apply(devmap_stage_avg, 1, max)
 # BodyMap raw TPM: seven per-tissue files, each 69 390 × ~15 replicate columns.
 # Load all, drop metadata columns, bind on `gene_id`, compute per-gene mean.
 # -----------------------------------------------------------------------------
-cat("Loading BodyMap raw TPM (7 tissues)...\n")
-bm_files <- list.files(file.path(od_path, "data/bodymap/salmon"),
-                       pattern = "Atlantic_salmon_.*_tpm\\.tsv$",
-                       full.names = TRUE)
-bm_mat_list <- lapply(bm_files, function(f) {
-  d <- read_tsv(f, show_col_types = FALSE)
-  m <- d %>% select(-`transcript_id(s)`) %>%
-    column_to_rownames("gene_id") %>% as.matrix()
-  m
-})
-# All files share the same 69 390 row order — sanity check then cbind.
-stopifnot(all(sapply(bm_mat_list, nrow) == nrow(bm_mat_list[[1]])))
-stopifnot(all(sapply(bm_mat_list, function(m) identical(rownames(m),
-                                                         rownames(bm_mat_list[[1]])))))
-bodymap_tpm_mat  <- do.call(cbind, bm_mat_list)
+cat("Loading BodyMap raw TPM (salmon, 7 tissues) from Salmobase...\n")
+# process_tissue_data() downloads the seven per-tissue Salmobase TPM files and
+# concatenates them into one gene x 84-replicate matrix (rownames = gene_id) —
+# the same loader 01_data_loading.Rmd uses. We then summarise per gene below.
+bodymap_tpm_mat  <- as.matrix(process_tissue_data(
+  "salmon", urls = paths$recompute$bodymap_salmon_urls))
 bodymap_mean_tpm <- rowMeans(bodymap_tpm_mat)
 bodymap_max_tpm  <- apply(bodymap_tpm_mat, 1, max)
 

@@ -37,18 +37,24 @@ are kept available for sensitivity checks even though the main analysis
 uses the unfiltered lists.
 
 ```{r build_som_orthogroup_lists}
+# DevMap (16 units): for each unit, map its member genes (sd_ids/td_ids from 02)
+# to their sub-orthogroup IDs. These subOG lists are what we intersect to count
+# shared orthogroups between salmon and trout clusters.
 sd_ids_som <- list(); td_ids_som <- list()
 for (i in 1:16) {
   sd_ids_som[[i]] <- orthogroups$subOG[which(orthogroups$geneID %in% sd_ids[[i]])]
   td_ids_som[[i]] <- orthogroups$subOG[which(orthogroups$geneID %in% td_ids[[i]])]
 }
 
+# BodyMap (36 units): same mapping.
 sb_ids_som <- list(); tb_ids_som <- list()
 for (i in 1:36) {
   sb_ids_som[[i]] <- orthogroups$subOG[which(orthogroups$geneID %in% sb_ids[[i]])]
   tb_ids_som[[i]] <- orthogroups$subOG[which(orthogroups$geneID %in% tb_ids[[i]])]
 }
 
+# `_filtered` variants: same, but restricted to low-copy orthogroups
+# (nSsal < 3 & nOmyk < 3). Kept for sensitivity checks; not used in the main run.
 sd_ids_som_filtered <- list(); td_ids_som_filtered <- list()
 for (i in 1:16) {
   sd_ids_som_filtered[[i]] <- orthogroups$subOG[which(
@@ -75,12 +81,15 @@ Cell (i, j) is the number of sub-orthogroups present in both salmon unit i
 and trout unit j. Two matrices: DevMap (16×16) and BodyMap (36×36).
 
 ```{r initial_observed_matrices}
+# DevMap observed matrix: cell (i,j) = number of subOGs shared between salmon
+# DevMap unit i and trout DevMap unit j (size of the subOG-list intersection).
 o_t <- data.frame(matrix(nrow = 16, ncol = 16))
 rownames(o_t) <- 1:16; colnames(o_t) <- 1:16
 for (i in 1:16) for (j in 1:16) {
   o_t[i, j] <- length(sd_ids_som[[i]][which(sd_ids_som[[i]] %in% td_ids_som[[j]])])
 }
 
+# BodyMap observed matrix (36x36): salmon BodyMap unit i vs trout BodyMap unit j.
 o_t.b <- data.frame(matrix(nrow = 36, ncol = 36))
 rownames(o_t.b) <- 1:36; colnames(o_t.b) <- 1:36
 for (i in 1:36) for (j in 1:36) {
@@ -97,6 +106,10 @@ permutation. `N_PERMUTATIONS` is 10,000 in production and 100 in test
 mode (`TEST_MODE = TRUE` in `R/setup.R`).
 
 ```{r permutation_setup, cache=TRUE}
+# Build N_PERMUTATIONS shuffled trout label assignments. Each replicate:
+# randomly permutes the trout gene order, re-attaches the (unchanged) SOM unit
+# vector somID, and joins each gene to its subOG — so SOM labels are shuffled
+# relative to orthogroup identity while the per-unit cluster sizes are preserved.
 td_norm_rownames <- as.data.frame(rownames(td_norm))
 colnames(td_norm_rownames) <- "geneID"
 tenk_list <- list()
@@ -129,6 +142,9 @@ vector, producing a (256 × `N_PERMUTATIONS`) DevMap distribution and a
 (1296 × `N_PERMUTATIONS`) BodyMap distribution.
 
 ```{r permutation_observations, cache=TRUE}
+# Recompute the observed shared-subOG count for every (salmon unit j, trout
+# unit l) cell under each shuffle, giving the null distribution per cell. Cells
+# are flattened to rows via the index 16*(j-1)+l (DevMap) / 36*(j-1)+l (BodyMap).
 random_observations <- data.frame(matrix(nrow = 256, ncol = N_PERMUTATIONS))
 salnames <- paste(rep("S", 16), rep(1:16, each = 16), sep = "")
 omnames  <- paste(rep("T", 16), rep(1:16, 16), sep = "")
@@ -163,6 +179,9 @@ for (i in seq_len(N_PERMUTATIONS)) {
 the observed do not become `Inf`.
 
 ```{r empirical_pvalues}
+# Per-cell empirical p = fraction of permutations whose count exceeds the
+# observed; reported as -log10(p) with a 1e-6 floor (so cells never observed to
+# be exceeded don't become Inf). Higher = more significant co-clustering.
 pvals_mat_log <- data.frame(matrix(nrow = 16, ncol = 16))
 for (i in 1:16) for (j in 1:16) {
   pvals_mat_log[i, j] <- -log10(0.000001 +
@@ -179,6 +198,8 @@ for (i in 1:36) for (j in 1:36) {
 ## Observed / expected ratios
 
 ```{r observed_expected_ratios}
+# Observed-over-expected ratio per cell = observed count / mean permuted count.
+# These ratios are the light-red bands overlaid on Figure 2A.
 oe_mat <- data.frame(matrix(nrow = 16, ncol = 16))
 random_obs_mean <- rowMeans(random_observations)
 rand_obs_wide   <- matrix(random_obs_mean, nrow = 16, ncol = 16, byrow = TRUE)
@@ -221,6 +242,10 @@ oe_mat.b <- oe_mat.b[
 ## Heatmap panels
 
 ```{r heatmap_panels}
+# Build the ComplexHeatmaps of the empirical p-values and the log2 o/e ratios,
+# in manuscript SOM order (full + stage-specific subsets, DevMap + BodyMap).
+# `_specific` variants drop the constitutive units. These are visualised in the
+# HTML; the o/e ratio is what feeds the Fig 2A bands.
 pval_heatmap <- Heatmap(as.matrix(pvals_mat_order_log), name = "Empirical p-val",
   cluster_column_slices = FALSE, cluster_row_slices = FALSE,
   show_row_dend = FALSE, show_row_names = TRUE,
@@ -267,6 +292,19 @@ o_e_heatmap_specific.b <- Heatmap(log2(as.matrix(oe_mat.b[1:20, 1:21]) + 0.1),
   use_raster = TRUE, raster_by_magick = TRUE,
   cluster_columns = FALSE, cluster_rows = FALSE,
   rect_gp = gpar(col = "white", lwd = 2))
+
+# Save each heatmap as its own vector PDF (the o/e ratio heatmaps are the
+# Fig 2A panels; the p-value + BodyMap variants are supplementary). draw()
+# renders a ComplexHeatmap into the open pdf() device.
+save_hm <- function(hm, file, w = 5, h = 6) {
+  pdf(file.path("results", file), width = w, height = h)
+  ComplexHeatmap::draw(hm); dev.off()
+}
+save_hm(o_e_heatmap,            "fig2A_oe_ratio_devmap.pdf")
+save_hm(o_e_heatmap_specific,   "fig2A_oe_ratio_devmap_specific.pdf")
+save_hm(pval_heatmap,           "suppS_pvalue_devmap.pdf")
+save_hm(o_e_heatmap.b,          "suppS_oe_ratio_bodymap.pdf", 7, 7)
+save_hm(o_e_heatmap_specific.b, "suppS_oe_ratio_bodymap_specific.pdf", 7, 7)
 ```
 
 ## Sankey panel — RNA shared orthogroups
@@ -318,11 +356,15 @@ color_palette <- colorRampPalette(c("skyblue", "seashell", "lightcoral"))
 rescaled_values <- rescale(data$color, to = c(0, 1))
 data$colors <- color_palette(nrow(data))[as.integer(round(rescaled_values * 99)) + 1]
 
-ggplot(data, aes(axis1 = source, axis2 = target, y = count)) +
+# DevMap RNA o/e Sankey — the Fig 2A observed/expected ratio bands. Assign,
+# display, and save to its own PDF.
+rna_sankey_devmap <- ggplot(data, aes(axis1 = source, axis2 = target, y = count)) +
   geom_alluvium(aes(fill = I(colors)), alpha = 0.7) +
   geom_stratum() +
   geom_text(stat = "stratum", aes(label = after_stat(stratum))) +
   theme_minimal()
+print(rna_sankey_devmap)
+ggsave("results/fig2A_oe_sankey_devmap.pdf", rna_sankey_devmap, width = 8, height = 6)
 
 # BodyMap equivalent
 o_st.b <- data.frame(matrix(nrow = 36, ncol = 36))
@@ -359,11 +401,14 @@ color_palette.b <- colorRampPalette(c("skyblue", "seashell", "lightcoral"))
 rescaled_values.b <- rescale(data.b$color, to = c(0, 1))
 data.b$colors <- color_palette.b(nrow(data.b))[as.integer(round(rescaled_values.b * nrow(data.b))) + 1]
 
-ggplot(data.b, aes(axis1 = source, axis2 = target, y = count)) +
+# BodyMap RNA o/e Sankey (supplementary). Assign, display, and save.
+rna_sankey_bodymap <- ggplot(data.b, aes(axis1 = source, axis2 = target, y = count)) +
   geom_alluvium(aes(fill = I(colors)), alpha = 0.7) +
   geom_stratum() +
   geom_text(stat = "stratum", aes(label = after_stat(stratum))) +
   theme_minimal()
+print(rna_sankey_bodymap)
+ggsave("results/suppS_oe_sankey_bodymap.pdf", rna_sankey_bodymap, width = 8, height = 6)
 ```
 
 ## Sankey panel — ATAC peak overlap (DevMap)
@@ -389,13 +434,16 @@ overlapping_peaks_fst$cluster_Ssal <- factor(
   paste("s", overlapping_peaks_fst$cluster_Ssal, sep = ""),
   levels = paste("s", Ssal_clusters, sep = ""))
 
-ggplot(overlapping_peaks_fst,
+# DevMap ATAC peak-overlap Sankey. Assign, display, and save.
+atac_sankey_devmap <- ggplot(overlapping_peaks_fst,
        aes(axis1 = cluster_Ssal, axis2 = cluster_Omyk, y = n)) +
   geom_alluvium(aes(fill = n), alpha = 0.7) +
   geom_stratum() +
   geom_text(stat = "stratum", aes(label = after_stat(stratum))) +
   theme_minimal() +
   scale_fill_gradient(low = "lightgrey", high = "coral4")
+print(atac_sankey_devmap)
+ggsave("results/atac_peak_overlap_sankey_devmap.pdf", atac_sankey_devmap, width = 8, height = 6)
 ```
 
 ## Sankey panel — ATAC peak overlap (BodyMap)
@@ -417,11 +465,14 @@ overlapping_peaks_bodymap_fst$cluster_Omyk <- factor(
   paste("t", overlapping_peaks_bodymap_fst$cluster_Omyk, sep = ""),
   levels = paste("t", Omyk_cluster_b, sep = ""))
 
-ggplot(overlapping_peaks_bodymap_fst,
+# BodyMap ATAC peak-overlap Sankey. Assign, display, and save.
+atac_sankey_bodymap <- ggplot(overlapping_peaks_bodymap_fst,
        aes(axis1 = cluster_Ssal, axis2 = cluster_Omyk, y = n)) +
   geom_alluvium(aes(fill = n), alpha = 0.7) +
   geom_stratum() +
   geom_text(stat = "stratum", aes(label = after_stat(stratum))) +
   theme_minimal() +
   scale_fill_gradient(low = "lightgrey", high = "coral4")
+print(atac_sankey_bodymap)
+ggsave("results/atac_peak_overlap_sankey_bodymap.pdf", atac_sankey_bodymap, width = 8, height = 6)
 ```

@@ -20,14 +20,16 @@ keyed against the `omykiss_gene_ensembl` dataset and `tax_id = 8022`.
 ## Packages
 
 ```{r r_packages, message=FALSE, warning=FALSE}
-library(AnnotationForge)
-library(biomaRt)
-library(tidyverse)
+library(AnnotationForge)  # makeOrgPackage()
+library(biomaRt)          # getBM() Ensembl query
+library(tidyverse)        # table wrangling
 ```
 
 ## Fetch annotation from BioMart
 
 ```{r fetch_biomart, cache=TRUE}
+# One BioMart query (gene IDs, GO + evidence, symbols, descriptions,
+# chromosomes) against the trout Ensembl dataset.
 tbl_trout <- getBM(
   attributes = c("ensembl_gene_id", "go_id", "go_linkage_type",
                  "external_gene_name", "description", "chromosome_name"),
@@ -38,6 +40,7 @@ tbl_trout <- getBM(
 ## Split into the three AnnotationForge tables
 
 ```{r split_tables}
+# Gene-info table (GID -> SYMBOL, GENENAME); drop empty symbol/name rows.
 gene_info_tbl_trout <- tbl_trout %>%
   dplyr::select(GID = ensembl_gene_id,
                 SYMBOL = external_gene_name,
@@ -45,9 +48,11 @@ gene_info_tbl_trout <- tbl_trout %>%
   distinct() %>%
   filter(SYMBOL != "", GENENAME != "")
 
+# Gene -> chromosome table.
 gene_chromosome_tbl_trout <- tbl_trout %>%
   distinct(GID = ensembl_gene_id, CHROMOSOME = chromosome_name)
 
+# Gene -> GO table with evidence; drop empty GO/evidence rows.
 gene_GO_tbl_trout <- tbl_trout %>%
   distinct(GID = ensembl_gene_id, GO = go_id, EVIDENCE = "go_linkage_type") %>%
   filter(GO != "", EVIDENCE != "")
@@ -56,6 +61,7 @@ gene_GO_tbl_trout <- tbl_trout %>%
 ## Build the OrgDB package
 
 ```{r build_orgdb}
+# Assemble into an installable OrgDb (org.Omykiss.eg.db); tax_id 8022 = O. mykiss.
 AnnotationForge::makeOrgPackage(
   gene_info  = gene_info_tbl_trout,
   chromosome = gene_chromosome_tbl_trout,
@@ -73,5 +79,6 @@ AnnotationForge::makeOrgPackage(
 ## Install the built package
 
 ```{r install_orgdb}
+# Install the freshly-built package so 06_go.Rmd can load it.
 install.packages("./org.Omykiss.eg.db", repos = NULL, type = "source")
 ```

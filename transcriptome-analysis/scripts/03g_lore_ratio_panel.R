@@ -67,6 +67,7 @@ tissue_cols <- c(
   "Multi"="skyblue", "Constitutive"="#becacaff"
 )
 
+# Collapse a verbose SOM/cluster label to a short tissue name (e.g. "Brain").
 simplify_tissue <- function(lbl) {
   case_when(
     grepl("Brain", lbl)        ~ "Brain",
@@ -130,6 +131,7 @@ devmap_df <- devmap_gene_counts %>%
     )
   )
 
+# Build the DevMap per-cluster LORe-fraction panel.
 devmap_lore_plot <- function(df) {
   ggplot(df, aes(x = label_ms, y = pct_LORe, fill = as.character(cluster))) +
     geom_col(colour = "grey20", linewidth = 0.3, width = 0.75) +
@@ -185,6 +187,7 @@ bodymap_df <- bodymap_gene_counts %>%
     )
   )
 
+# Build the BodyMap per-cluster LORe-fraction panel (tissue-faceted).
 bodymap_lore_plot <- function(df) {
   df <- df %>% arrange(tissue, cluster)
   df$cluster <- factor(df$cluster, levels = unique(df$cluster))

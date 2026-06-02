@@ -56,23 +56,24 @@ suppressPackageStartupMessages({
   library(tidyverse)
 })
 
-# Input assets live under data/ in this repository; the notebook sources this
-# script with the working directory at transcriptome-analysis/.
-od_path <- "."
+# Sourced by 04_ohnolog_coclustering.Rmd with the working directory at
+# transcriptome-analysis/, AFTER R/setup.R (so the shared loaders, `paths` and
+# read_table_anywhere() are in scope).
 
 # -----------------------------------------------------------------------------
-# Load SOMs, their expression matrices, the orthogroup table, AND the
-# precomputed cluster-info tables (sd_som_info, sb_som_info). The latter is
-# the canonical output of som_file_info_d()/_b() and is what the rest of the
-# manuscript pipeline uses — we consume it directly so labels never drift.
+# Load the deposited SOMs and their normalised matrices via the shared loaders,
+# the orthogroup table from Salmobase, AND the precomputed cluster-info tables
+# (sd_som_info, sb_som_info). The cluster-info tables are the canonical output
+# of som_file_info_d()/_b() and are what the rest of the manuscript pipeline
+# uses — we consume them directly so labels never drift.
 # -----------------------------------------------------------------------------
 cat("Loading data...\n")
-load(file.path(od_path, "data/original_soms/soms.RData"))
-load(file.path(od_path, "data/original_norm_files/norm.RData"))
+load_deposited_soms()   # injects sd_som, td_som, sb_som, tb_som
+load_deposited_norm()   # injects sd_norm, td_norm, sb_norm, tb_norm
 load("data/ohnolog/som_info.RData")   # sb_som_info, sd_som_info, som_file_info_b, som_file_info_d
 
-og <- read_tsv(file.path(od_path, "data/orthogroups/SalmonTroutOrthologs.tsv"),
-               show_col_types = FALSE)
+# Orthogroup table: always fetched from Salmobase (cached under cache/).
+og <- read_table_anywhere(paths$active$orthogroups)
 
 # Sanity: the SOM cluster indices in sd_som$som$unit.classif must be exactly
 # 1..nrow(sd_som_info). Fails loudly if the upstream pipeline has drifted

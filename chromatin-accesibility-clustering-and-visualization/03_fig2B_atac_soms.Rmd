@@ -1,5 +1,5 @@
 ---
-title: "Figure 2 ATAC: heatmaps, UMAPs and composite assembly"
+title: "03 — Figure 2B panels (chromatin accessibility SOMs)"
 author: "AQUA-FAANG salmonid analysis"
 date: "`r Sys.Date()`"
 output:
@@ -12,44 +12,76 @@ output:
 
 
 ```{r knitr_setup, include = FALSE}
+# Echo code, suppress warnings/messages in the rendered HTML, and cache the
+# expensive heatmap chunks so re-knits are fast.
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE,
                       cache = TRUE)
 ```
 
 ## Purpose
 
-Build the heatmaps, UMAPs and ribbon panels that make up the four ATAC
-columns of Figure 2 (DevMap salmon, BodyMap salmon, DevMap trout, BodyMap
-trout) and assemble them into the composite PDF. Loads the SOM objects
-and matrices produced by `01_atac_loading.Rmd` and `02_atac_soms.Rmd`.
+This notebook builds the **chromatin** panels of the manuscript's Figure 2 —
+i.e. **Figure 2B** (ATAC-seq): the four accessibility-SOM heatmaps and their
+UMAPs (DevMap salmon, BodyMap salmon, DevMap trout, BodyMap trout). It is the
+ATAC counterpart of the transcriptome notebook
+`../transcriptome-analysis/03_fig2A_expression_soms.Rmd`. As with Figure 2A, the
+final figure is assembled in Illustrator, so every panel is saved as an
+individual vector **PDF** under `results/` (a combined composite PDF is also
+written for quick reference).
+
+It loads the SOM input matrices, the fitted SOM objects and the UMAP embeddings
+produced by `01_atac_loading.Rmd` and `02_atac_soms.Rmd`.
 
 ```{r source_setup}
+# Shared helper functions (palettes, heatmap/UMAP builders).
 source("99_helpers.R")
+# If `paths` is not already in the session, knit 00_setup.Rmd to define it.
 if (!exists("paths")) knitr::knit("00_setup.Rmd", output = tempfile())
+# Derived SOM input matrices + fitted SOMs + UMAP embeddings (from 01 and 02).
 load(file.path(paths$derived_dir, "atac_matrices_salmon.RData"))
 load(file.path(paths$derived_dir, "atac_matrices_trout.RData"))
 load(file.path(paths$derived_dir, "atac_soms.RData"))
 
+# Shared heatmap colour scale: cividis ramp over the 0..2 normalised-intensity
+# range used by every ATAC heatmap below.
 pal_intensity <- circlize::colorRamp2(c(0:2), viridis::cividis(3)[0:3])
+
+# Ensure the output directory exists, then define two small savers used
+# throughout: one for ComplexHeatmap objects, one for ggplot UMAPs.
+dir.create(paths$results_dir, showWarnings = FALSE, recursive = TRUE)
+# save_hm_pdf — render a ComplexHeatmap to its own PDF.
+save_hm_pdf <- function(hm, file, width = 4, height = 7) {
+  pdf(file.path(paths$results_dir, file), width = width, height = height)
+  ComplexHeatmap::draw(hm)
+  dev.off()
+}
+# save_umap_pdf — save a ggplot UMAP to its own PDF.
+save_umap_pdf <- function(p, file, width = 4, height = 4) {
+  ggplot2::ggsave(file.path(paths$results_dir, file), p,
+                  width = width, height = height)
+}
 ```
 
 # Salmon DevMap
 
 ## Palette
 
-The DevMap palette uses inferno restricted to 0.285-0.627 across the 17
-dynamic SOM units, with the eight constitutive units in grey. The
-`splits_levels_c_salmon` vector defines the order in which the dynamic
-units appear in the heatmap; the trailing constitutive units come after.
+The DevMap palette uses inferno restricted to 0.285–0.627 across the 17 dynamic
+SOM units, with the 8 constitutive units in grey. `splits_levels_*` defines the
+order in which the dynamic units appear down the heatmap; the trailing
+constitutive units come after.
 
 ```{r palette_devmap_atac_salmon}
+# Dynamic-unit order (bottom-to-top) for the salmon DevMap heatmap.
 splits_levels_devmap_salmon <- rev(c("25", "24", "14", "20",
                                      "10", "5", "4", "8",
                                      "2", "1", "6", "7",
                                      "11", "17", "16", "22", "21"))
+# Full unit order = dynamic units followed by the 8 constitutive units.
 splits_levels_c_salmon <- c(splits_levels_devmap_salmon,
                             c("3", "9", "13", "12", "15", "18", "19", "23"))
 
+# Build the inferno+grey palette keyed by raw SOM unit id.
 palette_devmap_salmon <- inferno_plus_grey_palette(
   n_dynamic      = 17,
   n_constitutive = 8,
@@ -57,9 +89,10 @@ palette_devmap_salmon <- inferno_plus_grey_palette(
 )
 ```
 
-## Heatmap
+## Heatmap → PDF
 
 ```{r heatmap_devmap_salmon, cache = TRUE}
+# Heatmap of normalised peak intensity for the salmon DevMap dynamic units.
 heatmap_devmap_salmon <- make_atac_heatmap(
   in_mat        = devMap_in_mat_salmon,
   som           = devMap_atac_som_salmon,
@@ -68,40 +101,48 @@ heatmap_devmap_salmon <- make_atac_heatmap(
   show_column_names   = TRUE,
   show_heatmap_legend = FALSE
 )
+# Save this panel on its own.
+save_hm_pdf(heatmap_devmap_salmon, "fig2B_heatmap_devmap_salmon.pdf")
 ```
 
-## UMAP
+## UMAP → PDF
 
-The DevMap UMAP is rendered with `flip_y = TRUE` so that the colour
-gradient aligns with the heatmap row order.
+Rendered with `flip_y = TRUE` so the colour gradient aligns with the heatmap row
+order.
 
 ```{r umap_devmap_salmon}
+# SOM-coloured UMAP of the salmon DevMap accessibility regions.
 umap_devmap_salmon <- make_atac_umap(devMap_umap_salmon,
                                      devMap_atac_som_salmon,
                                      palette = palette_devmap_salmon,
                                      flip_y = TRUE)
+save_umap_pdf(umap_devmap_salmon, "fig2B_umap_devmap_salmon.pdf")
 ```
 
 # Salmon BodyMap
 
-## Heatmap
+## Heatmap → PDF
 
-The salmon BodyMap matrix columns are reordered to group the gonad
-samples by maturity-then-sex (`[,c(1:4,6,8,5,7,9:16)]`) and renamed so
-that immature / mature ovary and testis labels are explicit.
+The salmon BodyMap columns are reordered to group the gonad samples by
+maturity-then-sex (`[,c(1:4,6,8,5,7,9:16)]`) and renamed so immature/mature
+ovary and testis labels are explicit.
 
 ```{r heatmap_bodymap_salmon, cache = TRUE}
+# Rename the four gonad columns to explicit ovary/testis labels.
 colnames_bodymap_salmon <- colnames(bodyMap_in_mat_salmon)
 colnames_bodymap_salmon[5] <- "Ovary_Inmature_Female_ATAC"
 colnames_bodymap_salmon[6] <- "Testes_Inmature_Male_ATAC"
 colnames_bodymap_salmon[7] <- "Ovary_Mature_Female_ATAC"
 colnames_bodymap_salmon[8] <- "Testes_Mature_Male_ATAC"
 colnames(bodyMap_in_mat_salmon) <- colnames_bodymap_salmon
+# Reorder columns into the canonical tissue/maturity/sex order.
 bodymap_in_mat_reorder_salmon <- bodyMap_in_mat_salmon[, c(1:4, 6, 8, 5, 7, 9:16)]
 
+# Dynamic-unit order (bottom-to-top) for the salmon BodyMap heatmap.
 splits_levels_bodymap_salmon <- rev(c("24", "25", "19", "13", "8", "3",
                                       "17", "5", "1", "6", "7", "23", "22"))
 
+# Heatmap of normalised peak intensity for the salmon BodyMap dynamic units.
 heatmap_bodymap_salmon <- make_atac_heatmap(
   in_mat        = bodymap_in_mat_reorder_salmon,
   som           = bodyMap_atac_som_salmon,
@@ -109,46 +150,50 @@ heatmap_bodymap_salmon <- make_atac_heatmap(
   palette       = pal_intensity,
   show_column_names = TRUE
 )
+save_hm_pdf(heatmap_bodymap_salmon, "fig2B_heatmap_bodymap_salmon.pdf", 5, 7)
 ```
 
-## Palette
+## Palette and UMAP → PDF
 
-The BodyMap palette is hand-curated to reflect tissue identity (red for
-gonads, blue for somatic non-neural tissues, etc.). It is indexed by SOM
-unit so no reordering is needed for the UMAP.
-
-```{r palette_bodymap_atac_salmon}
-palette_bodymap_salmon <- salmon_bodymap_palette()
-```
-
-## UMAP
+The BodyMap palette is hand-curated to reflect tissue identity (red for gonads,
+blue for somatic non-neural tissues, etc.) and is already indexed by SOM unit,
+so no reordering is needed for the UMAP.
 
 ```{r umap_bodymap_salmon}
+# Hand-curated tissue palette for the salmon BodyMap.
+palette_bodymap_salmon <- salmon_bodymap_palette()
+# SOM-coloured UMAP of the salmon BodyMap accessibility regions.
 umap_bodymap_salmon <- make_atac_umap(bodyMap_umap_salmon,
                                       bodyMap_atac_som_salmon,
                                       palette = palette_bodymap_salmon,
                                       flip_y = FALSE)
+save_umap_pdf(umap_bodymap_salmon, "fig2B_umap_bodymap_salmon.pdf")
 ```
 
 # Trout DevMap
 
-## Palette and heatmap
+## Palette and heatmap → PDF
 
 ```{r heatmap_devmap_trout, cache = TRUE}
+# Dynamic-unit order (bottom-to-top) for the trout DevMap heatmap.
 splits_levels_devmap_trout <- rev(c("25", "15", "14", "20", "24",
                                     "23", "18", "5",
                                     "3", "2",
                                     "19", "1",
                                     "7", "6", "21", "17", "16"))
+# Full unit order = dynamic units followed by the 8 constitutive units.
 splits_levels_c_trout <- c(splits_levels_devmap_trout,
                            c("8", "9", "10", "11", "12", "13", "22", "4"))
 
+# Inferno+grey palette for the trout DevMap, keyed by raw SOM unit id.
 palette_devmap_trout <- inferno_plus_grey_palette(
   n_dynamic      = 17,
   n_constitutive = 8,
   order_perm     = splits_levels_c_trout
 )
 
+# Heatmap of normalised peak intensity for the trout DevMap dynamic units
+# (legend shown here; column names hidden as they repeat the salmon panel).
 heatmap_devmap_trout <- make_atac_heatmap(
   in_mat        = devMap_in_mat_trout,
   som           = devMap_atac_som_trout,
@@ -157,28 +202,34 @@ heatmap_devmap_trout <- make_atac_heatmap(
   show_column_names = FALSE,
   show_heatmap_legend = TRUE
 )
+save_hm_pdf(heatmap_devmap_trout, "fig2B_heatmap_devmap_trout.pdf")
 ```
 
-## UMAP
+## UMAP → PDF
 
 ```{r umap_devmap_trout}
+# SOM-coloured UMAP of the trout DevMap accessibility regions.
 umap_devmap_trout <- make_atac_umap(devMap_umap_trout,
                                     devMap_atac_som_trout,
                                     palette = palette_devmap_trout,
                                     flip_y = TRUE)
+save_umap_pdf(umap_devmap_trout, "fig2B_umap_devmap_trout.pdf")
 ```
 
 # Trout BodyMap
 
-## Heatmap
+## Heatmap → PDF
 
 Trout BodyMap has 12 sample columns; we keep them in input order.
 
 ```{r heatmap_bodymap_trout, cache = TRUE}
+# Keep trout BodyMap columns in input order (no gonad reshuffle needed).
 bodymap_in_mat_reorder_trout <- bodyMap_in_mat_trout[, c(1:4, 5:8, 9:12)]
 
+# Dynamic-unit order (bottom-to-top) for the trout BodyMap heatmap.
 splits_levels_bodymap_trout <- rev(c("25", "20", "21", "16", "17", "2", "3"))
 
+# Heatmap of normalised peak intensity for the trout BodyMap dynamic units.
 heatmap_bodymap_trout <- make_atac_heatmap(
   in_mat        = bodymap_in_mat_reorder_trout,
   som           = bodyMap_atac_som_trout,
@@ -186,47 +237,52 @@ heatmap_bodymap_trout <- make_atac_heatmap(
   palette       = pal_intensity,
   show_column_names = TRUE
 )
+save_hm_pdf(heatmap_bodymap_trout, "fig2B_heatmap_bodymap_trout.pdf", 5, 7)
 ```
 
-## Palette and UMAP
+## Palette and UMAP → PDF
 
 ```{r umap_bodymap_trout}
+# Hand-curated tissue palette for the trout BodyMap.
 palette_bodymap_trout <- trout_bodymap_palette()
+# SOM-coloured UMAP of the trout BodyMap accessibility regions.
 umap_bodymap_trout <- make_atac_umap(bodyMap_umap_trout,
                                      bodyMap_atac_som_trout,
                                      palette = palette_bodymap_trout,
                                      flip_y = FALSE)
+save_umap_pdf(umap_bodymap_trout, "fig2B_umap_bodymap_trout.pdf")
 ```
 
-# Composite assembly
+# Composite assembly → PDF
 
-The four heatmaps are turned into grobs (so they can sit alongside the
-UMAPs in a `grid.arrange` layout) and the UMAPs are arranged in a parallel
-strip. The composite PDF is written to
-`results/figure2_atac.pdf`.
+For a quick-look reference, the four heatmaps are converted to grobs (so they
+can sit in a `grid.arrange` layout) and stacked above a parallel strip of the
+four UMAPs. The manuscript's final Fig 2B is assembled in Illustrator from the
+individual PDFs above.
 
 ```{r assemble_atac_figure2}
+# Convert each ComplexHeatmap into a grob so it can be arranged with the UMAPs.
 heatmap_grob_devmap_salmon  <- grid.grabExpr(ComplexHeatmap::draw(heatmap_devmap_salmon))
 heatmap_grob_bodymap_salmon <- grid.grabExpr(ComplexHeatmap::draw(heatmap_bodymap_salmon))
 heatmap_grob_devmap_trout   <- grid.grabExpr(ComplexHeatmap::draw(heatmap_devmap_trout))
 heatmap_grob_bodymap_trout  <- grid.grabExpr(ComplexHeatmap::draw(heatmap_bodymap_trout))
 
-atac_heatmaps <- gridExtra::grid.arrange(
+# Row of the four heatmaps.
+atac_heatmaps <- gridExtra::arrangeGrob(
   heatmap_grob_devmap_salmon,  heatmap_grob_bodymap_salmon,
   heatmap_grob_devmap_trout,   heatmap_grob_bodymap_trout,
   nrow = 1
 )
-
-atac_umaps <- gridExtra::grid.arrange(
+# Row of the four UMAPs.
+atac_umaps <- gridExtra::arrangeGrob(
   umap_devmap_salmon,  umap_bodymap_salmon,
   umap_devmap_trout,   umap_bodymap_trout,
   nrow = 1
 )
 
-dir.create(paths$results_dir, showWarnings = FALSE, recursive = TRUE)
-pdf(file.path(paths$results_dir, "figure2_atac.pdf"),
+# Write the combined composite PDF (heatmap row over UMAP row).
+pdf(file.path(paths$results_dir, "fig2B_atac_composite.pdf"),
     width = 16, height = 10)
-gridExtra::grid.arrange(atac_heatmaps, atac_umaps, ncol = 1,
-                        heights = c(2, 1))
+gridExtra::grid.arrange(atac_heatmaps, atac_umaps, ncol = 1, heights = c(2, 1))
 dev.off()
 ```

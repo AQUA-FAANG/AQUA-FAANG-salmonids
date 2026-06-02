@@ -12,86 +12,100 @@ output:
 
 ## Overview
 
-Provides the four self-organising maps used throughout the paper: a 4×4
-DevMap SOM and a 6×6 BodyMap SOM for each species, both on a hexagonal
-grid. In `legacy` mode the SOMs are reconstructed from the deposited
-per-gene unit assignments and per-unit summary tables under `data/soms/`
-— only the fields actually consumed downstream (`som$unit.classif` and
-`stat`) are reified, which is enough for every notebook in this tree.
-In `salmobase` mode the SOMs are re-fit from the normalised matrices
-produced in `01_data_loading.Rmd`; unit assignments will differ from the
-manuscript because `kohonen::som` is not bit-stable across BLAS builds.
+This notebook provides the four self-organising maps (SOMs) used throughout
+the paper: a 4×4 DevMap SOM and a 6×6 BodyMap SOM for **each** species, all on
+a hexagonal grid.
+
+**Important — this notebook behaves differently depending on `aquafaang.mode`
+(set in `00_setup.Rmd`), and it does *not* always compute the SOMs from
+scratch:**
+
+- In **`reproduce`** mode (the default) the SOM fitting chunks are **skipped**
+  and the deposited SOM unit assignments under `data/soms/` are loaded instead.
+  This is what reproduces the manuscript figures exactly — the published SOMs
+  are loaded, not recomputed.
+- In **`recompute`** mode the SOMs are **re-fit from scratch** with
+  `kohonen::som()` on the normalised matrices from `01_data_loading.Rmd`.
+  Because `kohonen::som()` is not bit-stable across BLAS/OS builds, the unit
+  numbering — and therefore the clustering and figures — can differ slightly
+  from the manuscript.
+
+Which path runs is controlled by the single flag `SOM_LOAD_DEPOSITED` (defined
+in `R/setup.R`: `TRUE` in reproduce mode, `FALSE` in recompute mode). Every
+chunk below is gated on it, so exactly one of the two paths executes.
+
+This notebook expects `01_data_loading.Rmd` to have been run first **in the
+same R session** (the README's intended workflow), so the normalised matrices
+`sd_norm` / `td_norm` / `sb_norm` / `tb_norm` are already in scope.
 
 ```{r setup_chain, include=FALSE}
+# Load packages, constants, paths and the deposited-asset loaders.
 source("R/setup.R")
 ```
 
 ## Seed
 
 ```{r seed_lock}
+# Fixed seed so a recompute-mode re-fit is at least reproducible on a given
+# machine (it still differs across BLAS builds; see Overview).
 som_seed <- 387334
 ```
 
-## Fit DevMap SOMs
+## Fit DevMap SOMs — recompute mode only
 
-```{r fit_devmap_soms, eval=!SOM_LOAD_LEGACY, cache=TRUE}
+The next chunk has `eval = !SOM_LOAD_DEPOSITED`, so it runs **only in recompute
+mode**. In reproduce mode it is skipped entirely and the deposited assignments
+are loaded further down ("Load deposited SOM objects").
+
+```{r fit_devmap_soms, eval=!SOM_LOAD_DEPOSITED, cache=TRUE}
+# Fit the salmon DevMap SOM (4x4 grid) on its normalised matrix.
 set.seed(som_seed)
 sd_som <- get_som(sd_norm, 4, 4)
+# Fit the trout DevMap SOM (4x4 grid).
 set.seed(som_seed)
 td_som <- get_som(td_norm, 4, 4)
 ```
 
-## Fit BodyMap SOMs
+## Fit BodyMap SOMs — recompute mode only
 
-The BodyMap fits take the column-reordered input so the unit assignments
-line up with the tissue × maturity × sex ordering used in every BodyMap
-figure.
+Also recompute-only. The BodyMap fits take the column-reordered input so the
+unit assignments line up with the tissue × maturity × sex ordering used in
+every BodyMap figure.
 
-```{r fit_bodymap_soms, eval=!SOM_LOAD_LEGACY, cache=TRUE}
+```{r fit_bodymap_soms, eval=!SOM_LOAD_DEPOSITED, cache=TRUE}
+# Fit the salmon BodyMap SOM (6x6 grid) on the column-reordered matrix.
 set.seed(som_seed)
 sb_som <- get_som_bodymap(sb_norm, 6, 6, order_indices = indices_order_ssal)
+# Fit the trout BodyMap SOM (6x6 grid).
 set.seed(som_seed)
 tb_som <- get_som_bodymap(tb_norm, 6, 6, order_indices = indices_order_omyk)
 ```
 
-## Load deposited SOM objects (legacy mode only)
+## Load deposited SOM objects — reproduce mode only
 
-Reconstructs `sd_som`, `td_som`, `sb_som`, `tb_som` from the deposited
-per-gene unit assignments (`{tag}_unit_classif.tsv.gz`) and per-unit
-summary tables (`{tag}_unit_stats.tsv.gz` + `{tag}_stage_levels.txt`).
-The reconstructed objects carry only the fields the rest of the
-pipeline reads (`$som$unit.classif` and `$stat`); the kohonen prototype
-codes, distance matrices, etc. are not needed downstream and are
-omitted. The BodyMap stat tables are then re-levelled so the stage
-factor reflects the canonical tissue grouping; without this the
-BodyMap heatmaps and bar panels render with the columns out of order.
+This chunk has `eval = SOM_LOAD_DEPOSITED`, so it runs **only in reproduce
+mode** (and is skipped in recompute mode, where the chunks above already
+produced the SOMs). It reconstructs `sd_som` / `td_som` / `sb_som` / `tb_som`
+from the deposited per-gene unit assignments and per-unit summary tables under
+`data/soms/`, via the shared `load_deposited_soms()` helper (also used by the
+ohnolog scripts, so the two can never drift). The reconstructed objects carry
+only the fields the rest of the pipeline reads — `$som$unit.classif` and
+`$stat` — not the full kohonen prototype codes / distance matrices, which are
+not needed downstream.
 
-```{r load_legacy_soms, eval=SOM_LOAD_LEGACY}
-load_legacy_som <- function(tag) {
-  d <- paths$legacy$soms_dir
-  uc <- readr::read_tsv(file.path(d, paste0(tag, "_unit_classif.tsv.gz")),
-                        show_col_types = FALSE)
-  st <- readr::read_tsv(file.path(d, paste0(tag, "_unit_stats.tsv.gz")),
-                        show_col_types = FALSE)
-  stage_levels <- readLines(file.path(d, paste0(tag, "_stage_levels.txt")))
-  class_levels <- stringr::str_sort(unique(as.character(st$class)),
-                                    numeric = TRUE)
-  st$class <- factor(st$class, levels = class_levels)
-  st$stage <- factor(st$stage, levels = stage_levels)
-  list(som = list(unit.classif = as.integer(uc$unit)),
-       stat = tibble::as_tibble(st))
-}
+```{r load_deposited_soms, eval=SOM_LOAD_DEPOSITED}
+# Inject sd_som / td_som / sb_som / tb_som from data/soms/ into this session.
+load_deposited_soms()
 
-sd_som <- load_legacy_som("sd")
-td_som <- load_legacy_som("td")
-sb_som <- load_legacy_som("sb")
-tb_som <- load_legacy_som("tb")
-
+# Re-level the salmon BodyMap stat table's stage factor into the canonical
+# tissue grouping; without this the BodyMap heatmaps/bar panels would render
+# with their columns out of order.
 lev <- levels(sb_som$stat$stage)
-lev_order <- lev[c(3:6, 7:8, 1:2, 9:28)]
+lev_order <- lev[c(3:6, 7:8, 1:2, 9:28)]          # hand-picked canonical order
 sb_som$stat$stage <- factor(sb_som$stat$stage, levels = lev_order)
-sb_som$stat <- arrange(sb_som$stat, class, stage)
+sb_som$stat <- arrange(sb_som$stat, class, stage) # sort rows to match
 
+# Same re-levelling for the trout BodyMap stat table (its own column order).
 lev <- levels(tb_som$stat$stage)
 lev_order <- lev[c(3:6, 7, 1:2, 8:28)]
 tb_som$stat$stage <- factor(tb_som$stat$stage, levels = lev_order)
@@ -100,44 +114,53 @@ tb_som$stat <- arrange(tb_som$stat, class, stage)
 
 ## Per-cluster annotation tables
 
-`som_ids()` returns the gene IDs that landed in each SOM unit.
-`som_file_info_d()` and `som_file_info_b()` add the per-cluster
-annotation (peak stage / tissue, peak mean expression, constitutive flag,
-stage-specific flag for BodyMap) consumed by the heatmap, UMAP, and
-ohnolog notebooks.
+Runs in both modes (the SOM objects exist either way by this point).
+`som_ids()` returns the gene IDs that landed in each SOM unit;
+`som_file_info_d()` / `som_file_info_b()` add the per-cluster annotation (peak
+stage / tissue, peak mean expression, constitutive flag, and a stage-specific
+flag for BodyMap) consumed by the heatmap, UMAP and ohnolog notebooks.
 
 ```{r som_info_tables}
+# DevMap: gene lists per unit + the per-unit annotation table, per species.
 sd_ids <- som_ids(sd_norm, sd_som)
 sd_som_info <- som_file_info_d(sd_som)
 td_ids <- som_ids(td_norm, td_som)
 td_som_info <- som_file_info_d(td_som)
 
+# BodyMap: same, using the BodyMap-specific annotation builder.
 sb_ids <- som_ids(sb_norm, sb_som)
 sb_som_info <- som_file_info_b(sb_som)
 tb_ids <- som_ids(tb_norm, tb_som)
 tb_som_info <- som_file_info_b(tb_som)
 ```
 
-## Persist SOMs (salmobase mode)
+## Persist re-fit SOMs — recompute mode only
 
-When the SOMs were just re-fit, write the per-gene unit assignments and
-per-unit stat tables to a sibling `data/soms/*_regen.tsv.gz` set so the
-deposited files stay intact. Anyone who wants the full kohonen objects
-in this mode can grab them from `globalenv()` while the session is live.
+When the SOMs were just re-fit (recompute mode), write the per-gene unit
+assignments and per-unit stat tables to a sibling `data/soms/*_regen.tsv.gz`
+set, so the deposited files stay intact. The full kohonen objects remain
+available in the live session for anyone who wants them.
 
-```{r save_som_objects, eval=!SOM_LOAD_LEGACY}
+```{r save_som_objects, eval=!SOM_LOAD_DEPOSITED}
+# Ensure the output directory exists.
 out_dir <- "data/soms"
 if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
+
+# For each SOM, write the gene->unit map, the per-unit stat table, and the
+# stage factor order, mirroring the deposited file format with a _regen suffix.
 for (tag in c("sd", "td", "sb", "tb")) {
-  som_obj <- get(paste0(tag, "_som"))
-  norm_m  <- get(paste0(tag, "_norm"))
+  som_obj <- get(paste0(tag, "_som"))     # the re-fit SOM object
+  norm_m  <- get(paste0(tag, "_norm"))    # its input matrix (for gene order)
+  # gene_id -> unit assignment, in the matrix's row order.
   readr::write_tsv(
     tibble::tibble(gene_id = rownames(norm_m),
                    unit    = as.integer(som_obj$som$unit.classif)),
     file.path(out_dir, paste0(tag, "_unit_classif_regen.tsv.gz")))
+  # Per-unit summary table (factors flattened to plain text for portability).
   st <- as.data.frame(som_obj$stat)
   st$class <- as.character(st$class); st$stage <- as.character(st$stage)
   readr::write_tsv(st, file.path(out_dir, paste0(tag, "_unit_stats_regen.tsv.gz")))
+  # The stage factor order, one level per line.
   writeLines(levels(som_obj$stat$stage),
              file.path(out_dir, paste0(tag, "_stage_levels_regen.txt")))
 }

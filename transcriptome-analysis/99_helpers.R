@@ -34,8 +34,80 @@ process_tissue_data <- function(fish, file_path = NULL, urls = NULL) {
   raw_data
 }
 
+# === deposited-asset loaders (reproduce mode) ================================
+# These read the small derived assets shipped in the repo and inject named
+# objects into the CALLER's environment, exactly like base load() does for an
+# .RData file. They are the single source of truth for "load the deposited
+# SOMs / normalised matrices", used by BOTH 02_soms.Rmd and the ohnolog scripts
+# under scripts/, so the two can never drift apart.
+
+# load_deposited_norm — read the four deposited normalised expression matrices
+# (data/norm/{sd,td,sb,tb}_norm.tsv.gz) and inject them into `envir` as the
+# matrices sd_norm, td_norm, sb_norm, tb_norm. Each file is a gzipped TSV whose
+# first column is the gene_id (-> matrix rownames) and whose remaining columns
+# are the per-sample normalised values.
+load_deposited_norm <- function(norm_dir = "data/norm", envir = parent.frame()) {
+  # Read one tag's matrix: gene_id column -> rownames, the rest -> numeric body.
+  read_one <- function(tag) {
+    df <- readr::read_tsv(file.path(norm_dir, paste0(tag, "_norm.tsv.gz")),
+                          show_col_types = FALSE)
+    m <- as.matrix(df[, -1L])     # drop the gene_id column to get the numeric body
+    rownames(m) <- df[[1L]]       # restore gene IDs as matrix row names
+    m
+  }
+  # Inject sd_norm/td_norm/sb_norm/tb_norm into the caller's environment.
+  for (tag in c("sd", "td", "sb", "tb")) {
+    assign(paste0(tag, "_norm"), read_one(tag), envir = envir)
+  }
+  invisible(NULL)
+}
+
+# load_deposited_soms — reconstruct the four SOM objects from the deposited
+# per-gene unit assignments (data/soms/{tag}_unit_classif.tsv.gz) and per-unit
+# summary tables (data/soms/{tag}_unit_stats.tsv.gz + {tag}_stage_levels.txt),
+# injecting sd_som, td_som, sb_som, tb_som into `envir`. Each reconstructed
+# object is a list carrying exactly the two fields the rest of the pipeline
+# reads: $som$unit.classif (integer SOM unit per gene) and $stat (the per-unit
+# mean/sd summary tibble). The unit vector is aligned to the matching deposited
+# norm matrix's row order so the downstream positional zip
+# tibble(geneID = rownames(<norm>), cluster = <som>$som$unit.classif) is correct
+# regardless of file ordering.
+load_deposited_soms <- function(soms_dir = "data/soms",
+                                norm_dir = "data/norm",
+                                envir = parent.frame()) {
+  for (tag in c("sd", "td", "sb", "tb")) {
+    # Per-gene unit assignments: columns gene_id, unit.
+    uc <- readr::read_tsv(file.path(soms_dir, paste0(tag, "_unit_classif.tsv.gz")),
+                          show_col_types = FALSE)
+    # Per-unit summary table: columns class, stage, mean_value, sd.
+    st <- readr::read_tsv(file.path(soms_dir, paste0(tag, "_unit_stats.tsv.gz")),
+                          show_col_types = FALSE)
+    # The canonical stage/tissue factor order for this SOM's summary table.
+    stage_levels <- readLines(file.path(soms_dir, paste0(tag, "_stage_levels.txt")))
+    # The gene order of the matching norm matrix (its first/gene_id column only).
+    norm_ids <- readr::read_tsv(file.path(norm_dir, paste0(tag, "_norm.tsv.gz")),
+                                show_col_types = FALSE, col_select = 1L)[[1L]]
+    # Reorder the unit assignments into norm's gene order via an explicit join.
+    unit <- uc$unit[match(norm_ids, uc$gene_id)]
+    # Rebuild the class factor in natural numeric order (1,2,...,K not 1,10,11).
+    class_levels <- stringr::str_sort(unique(as.character(st$class)), numeric = TRUE)
+    st$class <- factor(st$class, levels = class_levels)
+    # Rebuild the stage factor in the deposited canonical order.
+    st$stage <- factor(st$stage, levels = stage_levels)
+    # Assemble the minimal SOM object and inject it as <tag>_som.
+    assign(paste0(tag, "_som"),
+           list(som  = list(unit.classif = as.integer(unit)),
+                stat = tibble::as_tibble(st)),
+           envir = envir)
+  }
+  invisible(NULL)
+}
+
 # === normalization ===========================================================
 
+# merge_reps_devmap — collapse the per-replicate DevMap TPM columns to one
+# mean-TPM column per stage, then reorder + rename the 14 columns into
+# chronological `stage_names` order. Returns a gene x stage matrix.
 merge_reps_devmap <- function(unmerged) {
   setDT(unmerged)
 
@@ -60,6 +132,9 @@ merge_reps_devmap <- function(unmerged) {
   merged
 }
 
+# merge_reps_bodymap — collapse the per-replicate BodyMap columns to one mean-TPM
+# column per (Tissue x Maturity x Sex) sample, and rename the gonad samples to
+# Ova / Testes by sex. Returns a gene x sample matrix.
 merge_reps_bodymap <- function(unmerged) {
   merged <- unmerged %>% rownames_to_column("gene_id")
   setDT(merged)
@@ -90,27 +165,37 @@ merge_reps_bodymap <- function(unmerged) {
                 starts_with("Gonad_Mature_Male"))
 }
 
+# normalize — turn a merged (gene x sample) mean-TPM matrix into the SOM input:
+# drop genes never expressed above 1 TPM in any sample, quantile-normalise
+# across samples, then z-scale each gene (SD only, no centering). Returns a
+# matrix with the surviving gene IDs as rownames.
 normalize <- function(merged) {
+  # Gene IDs of rows kept (any sample > 1 TPM).
   row_names <- merged %>% filter(if_any(everything(), ~ .x > 1))
   row_names <- rownames(row_names)
 
   norm <- merged %>%
-    filter(if_any(everything(), ~ .x > 1)) %>%
+    filter(if_any(everything(), ~ .x > 1)) %>%        # drop never-expressed genes
     data.matrix() %>%
-    preprocessCore::normalize.quantiles() %>%
-    t() %>% scale(center = FALSE, scale = TRUE) %>% t()
+    preprocessCore::normalize.quantiles() %>%          # quantile-normalise across samples
+    t() %>% scale(center = FALSE, scale = TRUE) %>% t() # per-gene z-scale (SD only)
 
-  rownames(norm) <- row_names
+  rownames(norm) <- row_names                           # quantile.normalise drops names; restore
   colnames(norm) <- colnames(merged)
   norm
 }
 
 # === SOM fit =================================================================
 
+# get_som — fit a DevMap SOM on `in_mat` (xdim x ydim hexagonal grid) and return
+# a list(som, stat, plot): the kohonen object, a per-(unit, stage) mean/SD
+# summary table, and a ribbon ggplot. Used in recompute mode (02_soms.Rmd).
 get_som <- function(in_mat, xdim, ydim) {
+  # Fit the SOM.
   som_obj <- kohonen::som(in_mat,
                           grid = somgrid(xdim, ydim, topo = "hexagonal"))
 
+  # Per-unit facet labels "Class <id> (<n genes>)".
   label_unit <- table(som_obj$unit.classif)
   tmp_name <- names(label_unit)
   label_unit <- str_c("Class ", tmp_name, " (", label_unit, ")")
@@ -143,8 +228,11 @@ get_som <- function(in_mat, xdim, ydim) {
   list(som = som_obj, stat = sum_stat, plot = out_plot)
 }
 
+# get_som_bodymap — like get_som, but the summary's stage factor is ordered by
+# `order_indices` (the canonical tissue x maturity x sex column order) so the
+# BodyMap ribbon/heatmap columns read correctly.
 get_som_bodymap <- function(in_mat, xdim, ydim, order_indices = NULL) {
-  if (is.null(order_indices)) order_indices <- seq_len(ncol(in_mat))
+  if (is.null(order_indices)) order_indices <- seq_len(ncol(in_mat))  # default: input order
   ordered_stages <- colnames(in_mat)[order_indices]
 
   som_obj <- kohonen::som(in_mat,
@@ -182,6 +270,8 @@ get_som_bodymap <- function(in_mat, xdim, ydim, order_indices = NULL) {
 
 # === SOM annotation ==========================================================
 
+# som_ids — return a list where element i is the vector of gene IDs assigned to
+# SOM unit i (gene IDs taken from the norm matrix rownames in unit.classif order).
 som_ids <- function(norm_file, som_file) {
   listid <- list()
   for (i in seq_along(unique(som_file$som$unit.classif))) {
@@ -190,6 +280,11 @@ som_ids <- function(norm_file, som_file) {
   listid
 }
 
+# som_file_info_d — per-unit annotation table for a DevMap SOM. For each of the
+# 16 units it records: class_max (the peak stage), class_max_mean (that peak's
+# mean value), and constitutive_class (TRUE if the unit's across-stage SD < 0.4,
+# i.e. a flat/housekeeping unit). Rows are sorted constitutive -> peak stage ->
+# peak mean, the manuscript display order.
 som_file_info_d <- function(som_file) {
   class_max <- vector(); constitutive_class <- vector()
   class_max_mean <- vector(); class_number <- c(1:16)
@@ -216,6 +311,10 @@ som_file_info_d <- function(som_file) {
   arrange(class_info, constitutive_class, class_max, desc(class_max_mean))
 }
 
+# som_file_info_b — per-unit annotation table for a BodyMap SOM (36 units). Like
+# som_file_info_d but also adds: a `stage_specific` flag (peak mean > 2.165; see
+# inline note) and a `tissue` column (the peak sample's tissue prefix). Sorted
+# constitutive -> stage_specific -> peak tissue -> peak mean.
 som_file_info_b <- function(som_file) {
   class_max <- vector(); constitutive_class <- vector()
   stage_specific <- vector(); class_max_mean <- vector()
@@ -258,15 +357,21 @@ som_file_info_b <- function(som_file) {
 
 # === palettes ================================================================
 
+# palette_devmap — inferno colours for the stage-specific DevMap units + grey for
+# the constitutive ones, then reordered so palette[i] is the colour for raw SOM
+# unit i (the ggplot scales key on raw unit id).
 palette_devmap <- function(n_stage_specific, n_constitutive, som_order) {
   stage_specific_cols <- inferno(n_stage_specific, begin = 0.15, end = 0.9)
   constitutive <- c("#becacaff")
   final_colors <- c(stage_specific_cols, rep(constitutive, n_constitutive))
 
-  color_order <- match(1:16, som_order)
+  color_order <- match(1:16, som_order)   # invert som_order -> key by raw unit id
   final_colors[color_order]
 }
 
+# palette_bodymap — map each BodyMap SOM unit to a colour by its annotation:
+# a distinct hue per peak tissue for stage-specific units, one shared "multi"
+# blue for non-specific non-constitutive units, and grey for constitutive units.
 palette_bodymap <- function(som_info) {
   brain_col       <- "#dce648ff"
   testes_col      <- "forestgreen"
@@ -309,7 +414,11 @@ palette_bodymap <- function(som_info) {
 
 # === heatmaps ================================================================
 
+# make_heatmap — ComplexHeatmap of a normalised expression matrix, rows split by
+# SOM unit in the given `order` (reversed so the first unit sits at the top), on
+# a cividis scaled-TPM colour ramp.
 make_heatmap <- function(norm_file, som_file, order) {
+  # Row split factor: SOM unit per gene, in reversed display order.
   splits <- factor(som_file$som$unit.classif, levels = rev(order)) %>% na.omit()
   Heatmap(norm_file,
           name = "Scaled TPM",

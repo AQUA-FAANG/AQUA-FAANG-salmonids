@@ -630,6 +630,8 @@ build_driver_marks <- function(sig_df, x_col) {
     rename(!!x_col := cluster)
 }
 
+# Build the per-cluster Early/Late composition bar panel for the DevMap map
+# (`mode` = "prop" stacks to proportions; else raw counts) and save it via save_gg.
 devmap_composition_plot <- function(df, mode, fname, labels_map, sig_df) {
   pos <- if (mode == "prop") position_fill(reverse = TRUE)
          else                 position_stack(reverse = TRUE)
@@ -679,6 +681,7 @@ devmap_composition_plot <- function(df, mode, fname, labels_map, sig_df) {
   save_gg(fname, p, 10, 5)
 }
 
+# As devmap_composition_plot, but for the BodyMap map (tissue-grouped x axis).
 bodymap_composition_plot <- function(df, mode, fname, labels_map, sig_df) {
   pos <- if (mode == "prop") position_fill(reverse = TRUE)
          else                 position_stack(reverse = TRUE)

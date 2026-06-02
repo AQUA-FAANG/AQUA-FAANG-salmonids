@@ -30,9 +30,9 @@ GO enrichment uses clusterProfiler together with the two custom OrgDB
 packages built in `99a_make_orgdb_salmon.Rmd` / `99b_make_orgdb_trout.Rmd`.
 
 ```{r packages_go, message=FALSE, warning=FALSE}
-library(clusterProfiler)
-library(org.Ssalar.eg.db)
-library(org.Omykiss.eg.db)
+library(clusterProfiler)   # compareCluster / enrichGO
+library(org.Ssalar.eg.db)  # salmon OrgDB (built by 99a)
+library(org.Omykiss.eg.db) # trout OrgDB (built by 99b)
 ```
 
 # Salmon DevMap
@@ -44,13 +44,14 @@ carries the four constitutive units that are appended as a single
 constitutive group when needed.
 
 ```{r build_gene_clusters_sd}
-constitutive_sd <- c(9, 7, 11, 8, 9)
-specific_sd     <- c(13, 10, 15, 14, 16, 12, 4, 2, 1, 6, 5, 9)
-universe        <- rownames(sd_norm)
+constitutive_sd <- c(9, 7, 11, 8, 9)                                  # constitutive units
+specific_sd     <- c(13, 10, 15, 14, 16, 12, 4, 2, 1, 6, 5, 9)        # stage-specific order
+universe        <- rownames(sd_norm)                                  # all genes (gene IDs)
 
+# One gene-list per SOM unit (the genes assigned to that unit), in specific_sd order.
 geneClusters_sd <- list()
 for (stage in specific_sd) {
-  stage_num <- match(stage, specific_sd)
+  stage_num <- match(stage, specific_sd)                              # position in the ordered list
   geneClusters_sd[[stage_num]] <- universe[which(sd_som$som$unit.classif == stage)]
 }
 names(geneClusters_sd) <- specific_sd
@@ -64,6 +65,9 @@ than the default `ENTREZID`. Both readable and raw outputs are kept so the
 downstream tables can carry SYMBOL labels and the genuine gene IDs.
 
 ```{r run_compareCluster_sd, cache=TRUE}
+# GO BP over-representation per cluster (BH-adjusted). keyType="GID" because the
+# custom OrgDBs key genes under GID, not the default ENTREZID. Two runs:
+# readable=TRUE maps IDs to gene SYMBOLs; readable=FALSE keeps the raw gene IDs.
 compareClusterObj_sd <- compareCluster(
   geneClusters_sd, fun = "enrichGO",
   OrgDb = org.Ssalar.eg.db, keyType = "GID",
@@ -84,24 +88,30 @@ collapsed into a single `constitutive` entry. The list is reordered
 alphabetically by name for stable downstream plotting.
 
 ```{r build_gene_clusters_sb}
+# Gene -> SOM unit lookup (named vector: gene ID -> unit).
 gene_class <- sb_som$som$unit.classif
 names(gene_class) <- rownames(sb_norm)
 
+# Stage-specific, non-constitutive units and their peak tissue.
 tissue_df <- sb_som_info[
   sb_som_info$stage_specific == TRUE &
     sb_som_info$constitutive_class == FALSE,
   c("tissue", "class_number")]
 
+# The constitutive units, collapsed into one group below.
 constitutive_classes <- as.numeric(
   sb_som_info[sb_som_info$constitutive_class == TRUE, "class_number"])
 
+# One gene-list per tissue (union of that tissue's units' genes)...
 geneClusters_sb <- lapply(
   split(tissue_df$class_number, tissue_df$tissue),
   function(cls) names(gene_class)[gene_class %in% cls])
 
+# ...plus a single "constitutive" group.
 geneClusters_sb[["constitutive"]] <- names(gene_class)[
   gene_class %in% constitutive_classes]
 
+# Alphabetical by group name for stable downstream plotting.
 geneClusters_sb <- geneClusters_sb[order(names(geneClusters_sb))]
 ```
 
@@ -124,6 +134,7 @@ compareClusterObj_sb_nr <- compareCluster(
 ## Build gene clusters
 
 ```{r build_gene_clusters_td}
+# Trout DevMap: same recipe as salmon DevMap (one gene-list per unit, in order).
 constitutive_td <- c(6, 10, 7, 4, 11)
 specific_td     <- c(13, 14, 9, 5, 1, 2, 3, 8, 15, 12, 16)
 universe        <- rownames(td_norm)
@@ -155,6 +166,7 @@ compareClusterObj_td_nr <- compareCluster(
 ## Build gene clusters
 
 ```{r build_gene_clusters_tb}
+# Trout BodyMap: same tissue-grouping recipe as salmon BodyMap above.
 gene_class <- tb_som$som$unit.classif
 names(gene_class) <- rownames(tb_norm)
 
@@ -197,6 +209,8 @@ File naming follows the convention used elsewhere in the project so
 downstream consumers can swap sources without renaming.
 
 ```{r save_compareCluster_csvs}
+# Write each compareCluster result to CSV: *_readable (SYMBOL labels) and
+# *_raw (gene IDs), for all four species x context objects.
 write.csv(as.data.frame(compareClusterObj_sd), "compareCluster_sd_readable.csv", row.names = FALSE)
 write.csv(as.data.frame(compareClusterObj_sd_nr), "compareCluster_sd_raw.csv", row.names = FALSE)
 

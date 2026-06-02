@@ -1,0 +1,288 @@
+---
+title: "03 — Figure 2A panels (transcriptome expression SOMs)"
+author: "AQUA-FAANG salmonid analysis"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: show
+    toc: true
+    toc_float: true
+    cache: true
+---
+
+## Overview
+
+This notebook produces the **transcriptome** panels of the manuscript's
+Figure 2 — i.e. **Figure 2A** (RNA-Seq) — plus their supplementary full-SOM
+counterparts. It does **not** produce the whole of Figure 2: the final figure
+is assembled in Illustrator from several sources, and the other pieces come
+from elsewhere in the project:
+
+| Figure 2 piece | Produced by |
+|---|---|
+| 2A heatmaps + UMAPs (RNA expression SOMs, DevMap) | **this notebook** |
+| 2A light-red observed/expected ratio bands (RNA) | `05_observed_expected.Rmd` |
+| 2B heatmaps + UMAPs (ATAC peak intensity, DevMap) | `chromatin-accesibility-clustering-and-visualization/03_fig2B_atac_soms.Rmd` |
+| 2B brown synteny bands (ATAC) | chromatin notebooks |
+| Full SOM clusters (Figs S18–S21) and BodyMap SOMs (Fig S25) | this notebook (saved separately below) |
+
+Every panel this notebook makes is written to `results/` as an individual
+vector **PDF**, ready to be placed into the Illustrator artboard.
+
+This notebook expects `01_data_loading.Rmd` and `02_soms.Rmd` to have been run
+first **in the same R session** (the README's intended workflow), so the
+normalised matrices (`sd_norm` …) and SOM fits/annotation (`sd_som`,
+`sd_som_info` …) are already in scope.
+
+```{r setup_chain, include=FALSE}
+# Packages, constants, paths and helpers.
+source("R/setup.R")
+```
+
+## Initial full heatmaps (diagnostic)
+
+Heatmaps drawn with the SOM unit order as it falls straight out of
+`kohonen::som()`. This pass is diagnostic only; the next chunk reorders the
+SOM-info tables into the manuscript row order and we redraw.
+
+```{r full_heatmaps_initial}
+# Build one ComplexHeatmap per SOM (BodyMap matrices are column-reordered into
+# the canonical tissue x maturity x sex order before plotting).
+sd_heatmap <- make_heatmap(sd_norm, sd_som, sd_som_info$class_number)
+td_heatmap <- make_heatmap(td_norm, td_som, td_som_info$class_number)
+sb_heatmap <- make_heatmap(sb_norm[, indices_order_ssal], sb_som, sb_som_info$class_number)
+tb_heatmap <- make_heatmap(tb_norm[, indices_order_omyk], tb_som, tb_som_info$class_number)
+```
+
+## Reorder SOM-info tables to match the manuscript layout
+
+The DevMap reorderings move two stage-specific units into the position the
+manuscript heatmaps expect. The BodyMap edits flip a handful of
+stage-specific flags that the automated 2.165 threshold mis-calls, then
+re-arrange by constitutive / stage-specific / peak-tissue / peak-mean.
+
+```{r reorder_som_info}
+# DevMap: hand-tuned unit reordering for each species.
+sd_som_info <- sd_som_info[c(1:9, 11, 12, 10, 13:16), ]
+td_som_info <- td_som_info[c(1:8, 11, 10, 9, 12:16), ]
+
+# Salmon BodyMap: correct one mis-called stage-specific flag, then re-sort.
+sb_som_info$stage_specific[10] <- "FALSE"
+sb_som_info <- arrange(sb_som_info, constitutive_class, desc(stage_specific),
+                       class_max, desc(class_max_mean))
+
+# Trout BodyMap: correct several flags, then re-sort the same way.
+tb_som_info$stage_specific[c(5, 4, 9)] <- "FALSE"
+tb_som_info$stage_specific[c(25, 27)]  <- "TRUE"
+tb_som_info <- arrange(tb_som_info, constitutive_class, desc(stage_specific),
+                       class_max, desc(class_max_mean))
+```
+
+## Final full heatmaps → supplementary PDFs (Figs S18–21, S25)
+
+These full heatmaps (all clusters, including the constitutive/housekeeping
+ones) are the **supplementary** SOM figures, not the curated Fig 2A panels.
+Each is saved to its own PDF.
+
+```{r full_heatmaps_final}
+# Rebuild the heatmaps now the SOM-info row order is final.
+sd_heatmap <- make_heatmap(sd_norm, sd_som, sd_som_info$class_number)
+td_heatmap <- make_heatmap(td_norm, td_som, td_som_info$class_number)
+sb_heatmap <- make_heatmap(sb_norm[, indices_order_ssal], sb_som, sb_som_info$class_number)
+tb_heatmap <- make_heatmap(tb_norm[, indices_order_omyk], tb_som, tb_som_info$class_number)
+
+# Save each full heatmap to its own supplementary PDF. draw() renders a
+# ComplexHeatmap to the currently-open (pdf) graphics device.
+save_heatmap_pdf <- function(hm, file, width = 5, height = 7) {
+  pdf(file, width = width, height = height)  # open a PDF device
+  ComplexHeatmap::draw(hm)                    # render the heatmap into it
+  dev.off()                                   # close/flush the device
+}
+save_heatmap_pdf(sd_heatmap, "results/suppS18_full_som_devmap_salmon.pdf")
+save_heatmap_pdf(td_heatmap, "results/suppS19_full_som_devmap_trout.pdf")
+save_heatmap_pdf(sb_heatmap, "results/suppS25_full_som_bodymap_salmon.pdf")
+save_heatmap_pdf(tb_heatmap, "results/suppS25_full_som_bodymap_trout.pdf")
+
+# Also keep the legacy combined file for backward compatibility.
+pdf("results/heatmaps.pdf")
+plot(sd_heatmap); plot(td_heatmap); plot(sb_heatmap); plot(tb_heatmap)
+dev.off()
+```
+
+## UMAP projections
+
+UMAP run on the normalised expression matrices with `init = "pca"` so the
+embeddings are deterministic given the input.
+
+```{r umaps_all}
+# One 2-D UMAP embedding per normalised matrix (rows = genes).
+sd_umap <- sd_norm %>% uwot::umap(init = "pca")
+td_umap <- td_norm %>% uwot::umap(init = "pca")
+sb_umap <- sb_norm %>% uwot::umap(init = "pca")
+tb_umap <- tb_norm %>% uwot::umap(init = "pca")
+```
+
+## Palettes
+
+`palette_devmap()` assigns inferno to the stage-specific units and grey to the
+constitutive ones, in the manuscript order. `palette_bodymap()` keys on the
+peak tissue and stage-specific flag for each unit.
+
+```{r palettes}
+# DevMap palettes (n_stage_specific, n_constitutive, unit order).
+sd_pal <- palette_devmap(12, 4, sd_som_info$class_number)
+td_pal <- palette_devmap(11, 5, td_som_info$class_number)
+
+# BodyMap palettes keyed on the annotation table.
+sb_pal <- palette_bodymap(sb_som_info)
+tb_pal <- palette_bodymap(tb_som_info)
+```
+
+## BodyMap UMAP + stage-specific panels → supplementary PDFs
+
+The salmon/trout BodyMap UMAPs (coloured by SOM unit) are saved for the
+supplementary BodyMap figure.
+
+```{r umap_panels_bodymap}
+# Salmon BodyMap UMAP coloured by SOM unit.
+sb_umap_cols <- sb_umap %>% as.data.frame() %>%
+  ggplot(aes(V1, -V2)) +
+  geom_point(aes(colour = factor(sb_som$som$unit.classif,
+                                 levels = sb_som_info$class_number)),
+             alpha = .4, size = .1) +
+  scale_color_manual(values = sb_pal) +
+  theme_classic() +
+  theme(legend.position = "none",
+        axis.line = element_blank(), axis.text = element_blank(),
+        axis.title = element_blank(), axis.ticks = element_blank())
+
+# Trout BodyMap UMAP coloured by SOM unit.
+tb_umap_cols <- tb_umap %>% as.data.frame() %>%
+  ggplot(aes(-V1, -V2)) +
+  geom_point(aes(colour = factor(tb_som$som$unit.classif,
+                                 levels = tb_som_info$class_number)),
+             alpha = .4, size = .1) +
+  scale_color_manual(values = tb_pal) +
+  theme_classic() +
+  theme(legend.position = "none",
+        axis.line = element_blank(), axis.text = element_blank(),
+        axis.title = element_blank(), axis.ticks = element_blank())
+
+# Save both BodyMap UMAPs as supplementary PDFs.
+ggsave("results/suppS25_umap_bodymap_salmon.pdf", sb_umap_cols, width = 4, height = 4)
+ggsave("results/suppS25_umap_bodymap_trout.pdf",  tb_umap_cols, width = 4, height = 4)
+```
+
+## Stage-specific heatmaps → Fig 2A / supplementary PDFs
+
+The full heatmaps include the constitutive units, which compress the dynamic
+range. Fig 2A shows only the stage-specific units; the panels below restrict to
+those, per map, and save each as a PDF.
+
+```{r stage_specific_heatmaps}
+# DevMap stage-specific heatmaps (the Fig 2A heatmaps), per species.
+sd_heatmap_specific <- make_heatmap(
+  sd_norm[which(sd_som$som$unit.classif %in% sd_som_info$class_number[c(1:9, 11, 12)]), ],
+  sd_som, sd_som_info$class_number[c(1:9, 11, 12)])
+td_heatmap_specific <- make_heatmap(
+  td_norm[which(td_som$som$unit.classif %in% td_som_info$class_number[c(1:8, 10, 11)]), ],
+  td_som, td_som_info$class_number[c(1:8, 10, 11)])
+
+# Save the two DevMap stage-specific heatmaps as Fig 2A PDFs.
+save_heatmap_pdf(sd_heatmap_specific, "results/fig2A_heatmap_devmap_salmon.pdf", 4, 6)
+save_heatmap_pdf(td_heatmap_specific, "results/fig2A_heatmap_devmap_trout.pdf",  4, 6)
+
+# Capture them as grobs so they can be arranged into the composite below.
+sd_heatmap_specific_grob <- grid.grabExpr(draw(sd_heatmap_specific))
+td_heatmap_specific_grob <- grid.grabExpr(draw(td_heatmap_specific))
+# Side-by-side grob (not drawn yet) of the two DevMap heatmaps.
+specific_heatmaps <- arrangeGrob(sd_heatmap_specific_grob,
+                                 td_heatmap_specific_grob, nrow = 1)
+
+# BodyMap stage-specific heatmaps (supplementary).
+sb_heatmap_specific <- make_heatmap(
+  sb_norm[which(sb_som$som$unit.classif %in%
+                sb_som_info$class_number[which(sb_som_info$stage_specific == TRUE)]),
+          indices_order_ssal],
+  sb_som,
+  sb_som_info$class_number[which(sb_som_info$stage_specific == TRUE)])
+
+tb_heatmap_specific <- make_heatmap(
+  tb_norm[which(tb_som$som$unit.classif %in%
+                tb_som_info$class_number[which(tb_som_info$stage_specific == TRUE)]),
+          indices_order_omyk],
+  tb_som,
+  tb_som_info$class_number[which(tb_som_info$stage_specific == TRUE)])
+
+# Save the BodyMap stage-specific heatmaps as supplementary PDFs.
+save_heatmap_pdf(sb_heatmap_specific, "results/suppS25_heatmap_bodymap_salmon.pdf", 5, 6)
+save_heatmap_pdf(tb_heatmap_specific, "results/suppS25_heatmap_bodymap_trout.pdf",  5, 6)
+```
+
+## Final inferno UMAPs → Fig 2A PDFs
+
+The published Figure 2A UMAPs use a `desired_order` that maps the kohonen unit
+IDs to the chronological cluster ordering used in the manuscript (M1..P2, then
+C1..C4). `match(1:16, desired_order)` inverts the mapping so the palette stays
+keyed by raw unit ID. These are the UMAP panels that go into Fig 2A.
+
+```{r inferno_palettes_final}
+# Salmon DevMap: 12 inferno colours for stage-specific units + 4 greys.
+stage_specific_cols_ssal <- inferno(12, begin = 0.15, end = 0.9)
+constitutive <- c("#becacaff")
+final_colors_ssal <- c(stage_specific_cols_ssal, rep(constitutive, 4))
+
+# Reorder the palette so palette[i] is the colour for raw kohonen unit i.
+desired_order <- c(13, 10, 15, 14, 16, 12, 4, 2, 1, 6, 9, 5, 3, 8, 11, 7)
+color_order_for_objects <- match(1:16, desired_order)
+ordered_palette_salmon_devmap <- final_colors_ssal[color_order_for_objects]
+
+# Salmon DevMap UMAP, coloured by the published palette.
+sd_umap_cols <- sd_umap %>% as.data.frame() %>%
+  ggplot(aes(-V1, -V2)) +
+  geom_point(aes(colour = factor(sd_som$som$unit.classif)),
+             alpha = .4, size = .8) +
+  scale_color_manual(values = ordered_palette_salmon_devmap) +
+  theme_classic() +
+  theme(legend.position = "none") + ylim(c(7, -6)) + xlim(c(-8, 9))
+
+# Trout DevMap: 11 inferno colours + 5 greys, same inversion trick.
+stage_specific_cols_omyk <- inferno(11, begin = 0.15, end = 0.9)
+final_colors_omyk <- c(stage_specific_cols_omyk, rep(constitutive, 5))
+
+desired_order_trout <- c(13, 14, 9, 5, 1, 2, 3, 8, 12, 15, 16, 7, 4, 11, 6, 10)
+color_order_for_objects <- match(1:16, desired_order_trout)
+ordered_palette_trout_devmap <- final_colors_omyk[color_order_for_objects]
+
+# Trout DevMap UMAP, coloured by the published palette.
+td_umap_cols <- td_umap %>% as.data.frame() %>%
+  ggplot(aes(-V1, -V2)) +
+  geom_point(aes(colour = factor(td_som$som$unit.classif)),
+             alpha = .4, size = 1) +
+  scale_color_manual(values = ordered_palette_trout_devmap) +
+  theme_classic() +
+  theme(legend.position = "none") + ylim(7, -6) + xlim(8, -8)
+
+# Save the two DevMap UMAPs as Fig 2A PDFs.
+ggsave("results/fig2A_umap_devmap_salmon.pdf", sd_umap_cols, width = 4, height = 4)
+ggsave("results/fig2A_umap_devmap_trout.pdf",  td_umap_cols, width = 4, height = 4)
+
+# Side-by-side grob of the two published UMAPs, for the composite.
+combined_umaps <- arrangeGrob(sd_umap_cols, td_umap_cols, nrow = 1)
+```
+
+## Figure 2A composite → PDF
+
+A convenience composite stacking the two DevMap UMAPs over the two DevMap
+stage-specific heatmaps. The manuscript's final Fig 2A is assembled in
+Illustrator from the individual PDFs above; this composite is a quick-look
+preview of how they fit together.
+
+```{r fig2_composite}
+# Stack UMAP row (1 unit tall) above heatmap row (3 units tall).
+dev_rna_panel <- arrangeGrob(combined_umaps, specific_heatmaps,
+                             ncol = 1, heights = c(1, 3))
+# Save the composite, and also draw it so it appears in the knitted HTML.
+ggsave("results/fig2A_devmap_composite.pdf", dev_rna_panel, width = 8, height = 10)
+grid::grid.newpage(); grid::grid.draw(dev_rna_panel)
+```

@@ -9,32 +9,78 @@ output:
     toc_float: true
 ---
 
-## Pick a data source
+## What this notebook does
 
-Run one of these two lines before sourcing the setup, depending on what you
-want to do. The default is `legacy`.
+`00_setup.Rmd` is the entry point for the transcriptome analysis. Run it first,
+top to bottom: it (1) records which data source you want, (2) sources
+`R/setup.R` (which installs/loads packages, defines constants and the `paths`
+list, and creates output directories), and (3) prints the resulting
+configuration so you can confirm everything is set up correctly. Then run
+`01..06` in order, in the same R session.
 
-```{r mode_toggle, eval=FALSE}
-options(aquafaang.mode = "legacy")     # reproduce the published figures
-options(aquafaang.mode = "salmobase")  # replicate from raw RNA-seq via Salmobase
-options(aquafaang.test = TRUE)         # shortcut slow chunks for testing
+## Choose a data source
+
+There are two modes. **You do not have to change anything** — the default
+(`reproduce`) is already set in the chunk below and is what most users want.
+
+- **`reproduce`** (default) — Use the small derived assets shipped in this repo
+  (the normalised expression matrices in `data/norm/` and the SOM cluster
+  assignments in `data/soms/`). These are the exact objects behind the
+  manuscript, so the notebooks reproduce the published figures. Fast, and the
+  only thing downloaded is the orthogroup table.
+- **`recompute`** — Re-derive everything from the raw RNA-seq TPM matrices,
+  which are downloaded from Salmobase, and re-fit the SOMs from scratch. Use
+  this to replicate the analysis from raw data. Note: because SOM fitting is not
+  bit-stable across computers, the clustering — and therefore the figures — can
+  differ slightly from the manuscript depending on the system used.
+
+The chunk below sets the mode. To use `recompute` instead, comment the first
+`options()` line and uncomment the second. `aquafaang.test` controls run length
+(see comment).
+
+```{r choose_mode}
+# Default: reproduce the published figures from the deposited derived data.
+options(aquafaang.mode = "reproduce")
+# Alternative: re-derive everything from raw RNA-seq (Salmobase). To use it,
+# comment the line above and uncomment the line below.
+# options(aquafaang.mode = "recompute")
+
+# Run length: FALSE = full manuscript run; TRUE = fast smoke test (fewer
+# permutations/bootstraps in 05). Leave FALSE unless you just want to check the
+# pipeline runs end to end.
+options(aquafaang.test = FALSE)
 ```
 
 ## Run setup
 
-Everything that the downstream notebooks need (`paths`, helpers, constants,
-the package stack) lives in `R/setup.R`. Source it once per session.
+Everything the downstream notebooks need — the package stack, the helper
+functions, the project constants, and the `paths` list — is defined in
+`R/setup.R`. Sourcing it reads the options set above and configures the
+session accordingly. `sessionInfo()` then records the exact package versions
+for provenance.
 
 ```{r run_setup}
+# Configure the session from the options chosen above (packages, paths, ...).
 source("R/setup.R")
+# Print R version + attached package versions, for reproducibility records.
 sessionInfo()
 ```
 
 ## Configuration in scope
 
+This chunk is a sanity check: it prints the configuration that `R/setup.R` just
+resolved, so you can confirm which mode you are in before running `01..06`.
+`DATA_MODE` and `TEST_MODE` echo your choices; `N_PERMUTATIONS` is the permutation
+count notebook 05 will use; and `str(paths$active, ...)` lists the active data
+sources (local directories in reproduce mode, Salmobase URLs in recompute mode).
+
 ```{r show_config}
+# Which data source is active ("reproduce" or "recompute").
 cat("DATA_MODE = ", DATA_MODE, "\n", sep = "")
+# Whether the fast smoke-test shortcuts are on.
 cat("TEST_MODE = ", TEST_MODE, "\n", sep = "")
+# Permutation count notebook 05 will run with (100 in test mode, else 10,000).
 cat("N_PERMUTATIONS = ", N_PERMUTATIONS, "\n", sep = "")
+# The active set of input locations (top level only, to keep the output short).
 str(paths$active, max.level = 1)
 ```

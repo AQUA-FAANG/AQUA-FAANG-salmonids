@@ -12,6 +12,7 @@ output:
 
 
 ```{r knitr_setup, include = FALSE}
+# Echo code, hide warnings/messages, and cache expensive chunks.
 knitr::opts_chunk$set(
   echo = TRUE,
   warning = FALSE,
@@ -22,75 +23,89 @@ knitr::opts_chunk$set(
 
 ## Purpose
 
-Entry point for the ATAC chromatin-accessibility analysis
-of Atlantic salmon (Salmo salar) and rainbow trout (Oncorhynchus mykiss). It
-declares the R package dependencies, defines the on-disk paths used by every
-downstream notebook, and sources the shared helper functions from
-`99_helpers.R`. Knit this notebook first; downstream notebooks expect the
-`paths` list and helper functions to be available.
+Entry point for the ATAC chromatin-accessibility analysis of Atlantic salmon
+(*Salmo salar*) and rainbow trout (*Oncorhynchus mykiss*). It installs/loads the
+package stack, defines the `paths` list every downstream notebook reads, and
+sources the shared helpers from `99_helpers.R`. Knit this notebook first;
+`01..03` expect `paths` and the helper functions to be in scope.
+
+### Where the input data comes from
+
+- **IDR consensus peak BEDs** — fetched on first use from Salmobase
+  (`robust_ATAC_peaks/annotated_peaks/`), cached under `cache/`. Nothing is
+  shipped in the repo.
+- **Per-species consensus expression RDS** — the one input not yet redistributed
+  (the tables are large; a Zenodo deposit / regeneration from the
+  `robust-open-chromatin/` pipeline is pending). For now they live locally under
+  `data/atac/`, materialised from the manuscript-state OneDrive bundles by
+  `scripts/extract_legacy_consensus_expression_rdata.R` (see the README).
 
 ## R package dependencies
 
-The packages below cover I/O of consensus expression tables and IDR consensus
-BED files (data.table, plyranges, rtracklayer), self-organising map fitting
-and dimensionality reduction (kohonen, cluster, uwot), heatmap rendering
-(ComplexHeatmap, circlize) and figure assembly (gtable, gridExtra). The
-tidyverse + viridis pair supports data wrangling and the perceptually uniform
-colour scales.
+CRAN + Bioconductor packages used across `00..03`: I/O of consensus expression
+tables and BED peaks (`data.table`, `plyranges`, `rtracklayer`, `GenomicRanges`),
+SOM fitting + dimensionality reduction (`kohonen`, `cluster`, `uwot`, `aweSOM`),
+heatmaps (`ComplexHeatmap`, `circlize`), figure assembly (`gtable`, `gridExtra`),
+and `tidyverse` + `viridis` for wrangling + palettes. They are auto-installed on
+a fresh R session.
 
 ```{r r_packages}
+# Full dependency set for this notebook tree, split by repository.
 .cran_pkgs <- c("circlize", "tidyverse", "viridis", "data.table", "gtable",
                 "gridExtra", "kohonen", "uwot", "cluster", "aweSOM")
 .bioc_pkgs <- c("ComplexHeatmap", "plyranges", "rtracklayer", "GenomicRanges")
+
+# .ensure_pkgs — install any listed package not already available (CRAN via
+# install.packages, Bioconductor via BiocManager); a no-op on a configured machine.
 .ensure_pkgs <- function(cran = character(), bioc = character()) {
-  miss_cran <- cran[!vapply(cran, requireNamespace,
-                            logical(1), quietly = TRUE)]
-  miss_bioc <- bioc[!vapply(bioc, requireNamespace,
-                            logical(1), quietly = TRUE)]
+  # Keep only the CRAN packages that cannot currently be loaded.
+  miss_cran <- cran[!vapply(cran, requireNamespace, logical(1), quietly = TRUE)]
+  # Same for Bioconductor packages.
+  miss_bioc <- bioc[!vapply(bioc, requireNamespace, logical(1), quietly = TRUE)]
+  # Install missing CRAN packages from a fixed mirror.
   if (length(miss_cran)) {
-    message("[setup] installing CRAN packages: ",
-            paste(miss_cran, collapse = ", "))
+    message("[setup] installing CRAN packages: ", paste(miss_cran, collapse = ", "))
     install.packages(miss_cran, repos = "https://cloud.r-project.org")
   }
+  # Install missing Bioconductor packages (installing BiocManager first if needed).
   if (length(miss_bioc)) {
     if (!requireNamespace("BiocManager", quietly = TRUE)) {
       install.packages("BiocManager", repos = "https://cloud.r-project.org")
     }
-    message("[setup] installing Bioconductor packages: ",
-            paste(miss_bioc, collapse = ", "))
+    message("[setup] installing Bioconductor packages: ", paste(miss_bioc, collapse = ", "))
     BiocManager::install(miss_bioc, ask = FALSE, update = FALSE)
   }
 }
+# Run the installer for this tree's dependency set.
 .ensure_pkgs(.cran_pkgs, .bioc_pkgs)
 
+# Attach the packages used unqualified by the helpers and notebooks.
 suppressPackageStartupMessages({
-  library(circlize)
-  library(tidyverse)
-  library(viridis)
-  library(ComplexHeatmap)
-  library(data.table)
-  library(gtable)
-  library(gridExtra)
-  library(kohonen)
-  library(uwot)
-  library(cluster)
-  library(plyranges)
-  library(rtracklayer)
+  library(circlize)        # colorRamp2() colour scale for the heatmaps
+  library(tidyverse)       # dplyr/ggplot2/stringr/readr/...
+  library(viridis)         # cividis/inferno palettes
+  library(ComplexHeatmap)  # ATAC SOM heatmaps
+  library(data.table)      # fast table handling
+  library(gtable)          # grob table manipulation for the composite
+  library(gridExtra)       # arrange grobs into the composite
+  library(kohonen)         # self-organising map fitting
+  library(uwot)            # UMAP embeddings
+  library(cluster)         # PAM super-clustering
+  library(plyranges)       # tidy GRanges (as_granges, %over%)
+  library(rtracklayer)     # BED/peak import
 })
 
+# Record exact package versions for provenance.
 sessionInfo()
 ```
 
 ## Data paths
 
-Two modes. `legacy` reads the local derived assets that produced the
-manuscript figures (consensus expression RDS and IDR consensus BED dirs)
-and reproduces the figures bit-for-bit. `salmobase` points at the upstream
-nf-core align outputs published on Salmobase; the IDR consensus BEDs and
-consensus-expression RDS files are derived in the sibling
-`robust-open-chromatin/` pipeline rather than republished by Salmobase, so
-this mode is the entry point for a from-raw biological replication via
-that pipeline.
+`paths` lists, for both species: the local consensus-expression RDS files, the
+Salmobase IDR-consensus peak BED URLs (one per condition for BodyMap, one per
+stage for DevMap), and the output directories. The peak BEDs are downloaded +
+cached on first use; the RDS files must already be present under `data/atac/`
+(see Purpose).
 
 ```{r paths_config}
 # Salmobase robust ATAC peak files (per-condition IDR-consensus bigBeds)
@@ -150,5 +165,7 @@ dir.create(paths$results_dir, showWarnings = FALSE, recursive = TRUE)
 ## Helpers
 
 ```{r source_helpers}
+# Load the shared helper functions (peak loaders, SOM wrappers, palettes,
+# heatmap/UMAP builders) used by 01..03.
 source("99_helpers.R")
 ```

@@ -12,76 +12,79 @@ output:
 
 ## Overview
 
-Produces the four quantile-normalised, z-scaled expression matrices
-(`sd_norm`, `td_norm`, `sb_norm`, `tb_norm`) that feed the SOM fits in
-`02_soms.Rmd`.
+This notebook produces the four quantile-normalised, z-scaled expression
+matrices — `sd_norm` (salmon DevMap), `td_norm` (trout DevMap), `sb_norm`
+(salmon BodyMap), `tb_norm` (trout BodyMap) — that feed the SOM fits in
+`02_soms.Rmd`. What it actually does depends on `aquafaang.mode` (see
+`00_setup.Rmd`):
 
-- **`legacy` mode** loads the deposited matrices directly from
-  `data/norm/*.tsv.gz` and skips the RNA-seq loading + normalisation
-  entirely — the deposited matrices are exactly what produced the
-  manuscript figures, so the downstream notebooks are reproduced
-  bit-for-bit.
-- **`salmobase` mode** fetches the per-tissue / per-stage TPM matrices
-  from Salmobase, merges technical replicates, and re-runs
-  `normalize()`. A sibling `data/norm/*_regen.tsv.gz` set is written so
-  the deposited matrices are not overwritten.
+- **`reproduce` mode** (default): load the deposited matrices directly from
+  `data/norm/*.tsv.gz` and skip RNA-seq loading + normalisation entirely. These
+  matrices are exactly what produced the manuscript figures, so everything
+  downstream reproduces bit-for-bit.
+- **`recompute` mode**: download the per-tissue / per-stage TPM matrices from
+  Salmobase, merge technical replicates, and re-run `normalize()` from scratch.
+  A sibling `data/norm/*_regen.tsv.gz` set is written so the deposited matrices
+  are never overwritten.
+
+The four matrices are left in the session for `02..06` to use (the README's
+intended "run `01..06` in order in one session" workflow).
 
 ```{r setup_chain, include=FALSE}
+# Packages, constants, paths, helpers and the deposited-asset loaders.
 source("R/setup.R")
 ```
 
 ## Load the orthogroup table
 
-The salmon × trout sub-orthogroup table is the join key for every
-cross-species analysis (observed / expected, ohnolog co-clustering,
-fold-change patterns). It is always fetched from Salmobase;
-`read_table_anywhere()` caches the download under `cache/` so subsequent
-runs do not re-hit the network.
+The salmon × trout sub-orthogroup table is the join key for every cross-species
+analysis (observed/expected, ohnolog co-clustering, fold-change patterns). It
+is always fetched from Salmobase — never shipped in the repo —
+and `read_table_anywhere()` caches the download under `cache/` so repeat runs
+do not re-hit the network.
 
 ```{r load_orthogroups}
+# Download (once) and read the orthogroup table into `orthogroups`.
 orthogroups <- read_table_anywhere(paths$active$orthogroups)
 ```
 
-## Load (legacy) or re-derive (salmobase) the normalised matrices
+## Load (reproduce) or re-derive (recompute) the normalised matrices
+
+The single `if` below is the fork between the two modes. In `reproduce` mode it
+is one call to the shared loader; in `recompute` mode it runs the full
+download → merge replicates → normalise → persist pipeline.
 
 ```{r normalize_expression}
-if (DATA_MODE == "legacy") {
-  read_norm <- function(tag) {
-    path <- file.path(paths$active$norm_dir, paste0(tag, "_norm.tsv.gz"))
-    df <- readr::read_tsv(path, show_col_types = FALSE)
-    m  <- as.matrix(df[, -1L])
-    rownames(m) <- df$gene_id
-    m
-  }
-  sd_norm <- read_norm("sd")
-  td_norm <- read_norm("td")
-  sb_norm <- read_norm("sb")
-  tb_norm <- read_norm("tb")
+if (DATA_MODE == "reproduce") {
+  # Inject sd_norm / td_norm / sb_norm / tb_norm straight from data/norm/.
+  load_deposited_norm()
 } else {
+  # --- recompute: pull raw TPM from Salmobase --------------------------------
+  # DevMap: one merged TPM matrix per species (gene_id, transcript_id(s), reps).
   sd_raw <- read_table_anywhere(paths$active$devmap_salmon)
   td_raw <- read_table_anywhere(paths$active$devmap_trout)
-  sb_raw <- process_tissue_data("salmon",
-                                urls = paths$active$bodymap_salmon_urls)
-  tb_raw <- process_tissue_data("trout",
-                                urls = paths$active$bodymap_trout_urls)
+  # BodyMap: seven per-tissue TPM files concatenated into one wide matrix.
+  sb_raw <- process_tissue_data("salmon", urls = paths$active$bodymap_salmon_urls)
+  tb_raw <- process_tissue_data("trout",  urls = paths$active$bodymap_trout_urls)
 
+  # --- collapse technical replicates to one column per condition -------------
   sd_merged <- merge_reps_devmap(sd_raw)
   td_merged <- merge_reps_devmap(td_raw)
   sb_merged <- merge_reps_bodymap(sb_raw)
   tb_merged <- merge_reps_bodymap(tb_raw)
 
+  # --- quantile-normalise + z-scale each matrix ------------------------------
   sd_norm <- normalize(sd_merged)
   td_norm <- normalize(td_merged)
   sb_norm <- normalize(sb_merged)
   tb_norm <- normalize(tb_merged)
 
-  # Persist a sibling *_regen.tsv.gz set so the deposited matrices stay
-  # untouched.
+  # --- persist a *_regen.tsv.gz set (never overwrite the deposited files) ----
   out_dir <- "data/norm"
   if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
   for (tag in c("sd", "td", "sb", "tb")) {
-    m <- get(paste0(tag, "_norm"))
-    df <- tibble::rownames_to_column(as.data.frame(m), var = "gene_id")
+    m  <- get(paste0(tag, "_norm"))                                   # this matrix
+    df <- tibble::rownames_to_column(as.data.frame(m), var = "gene_id")  # gene_id col
     readr::write_tsv(df, file.path(out_dir, paste0(tag, "_norm_regen.tsv.gz")))
   }
 }

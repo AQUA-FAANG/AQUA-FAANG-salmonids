@@ -16,7 +16,7 @@ manuscript.
 | `00_setup.Rmd` | Packages, on-disk paths, helper sourcing. |
 | `01_atac_loading.Rmd` | Read consensus expression RDS and IDR BEDs, build context unions, write scaled fold-enrichment matrices to `data/derived/`. |
 | `02_atac_soms.Rmd` | Fit four SOMs (DevMap and BodyMap × salmon and trout), derive PAM super-clusters and UMAP embeddings. |
-| `03_figure2_atac.Rmd` | Heatmaps, UMAPs and the Figure 2 ATAC composite. |
+| `03_fig2B_atac_soms.Rmd` | Heatmaps, UMAPs and the Figure 2 ATAC composite. |
 | `99_helpers.R` | I/O wrappers, SOM wrappers, palettes and plot builders. |
 
 ## How to run
@@ -27,7 +27,7 @@ Knit the notebooks in order:
 rmarkdown::render("00_setup.Rmd")
 rmarkdown::render("01_atac_loading.Rmd")
 rmarkdown::render("02_atac_soms.Rmd")
-rmarkdown::render("03_figure2_atac.Rmd")
+rmarkdown::render("03_fig2B_atac_soms.Rmd")
 ```
 
 The IDR BED imports in `01_atac_loading.Rmd` and the four SOM fits in

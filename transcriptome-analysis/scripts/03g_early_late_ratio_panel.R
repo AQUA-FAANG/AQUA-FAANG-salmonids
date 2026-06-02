@@ -72,6 +72,7 @@ tissue_cols <- c(
 aore_col <- "#b2182b"   # AORe / Early — red
 lore_col <- "#2166ac"   # LORe / Late  — blue
 
+# Collapse a verbose SOM/cluster label to a short tissue name (e.g. "Brain").
 simplify_tissue <- function(lbl) {
   case_when(
     grepl("Brain", lbl)        ~ "Brain",
@@ -199,6 +200,7 @@ devmap_df <- devmap_gene_counts %>%
     )
   )
 
+# Build the DevMap Late/Early co-clustering-ratio panel (per cluster, with CIs).
 devmap_ratio_plot <- function(df) {
   ymax <- max(df$el_ratio, na.rm = TRUE) * 1.15
   ggplot(df, aes(x = label_ms, y = el_ratio,
@@ -273,6 +275,7 @@ font_family <- "Helvetica"
 text_pt <- 6   # final-size minimum (pt). geom_text() takes mm: 6 pt = 2.117 mm.
 text_mm <- text_pt / .pt   # ggplot2's .pt = 72.27/25.4
 
+# Build the BodyMap Late/Early co-clustering-ratio panel (tissue-faceted).
 bodymap_ratio_plot <- function(df) {
   # Sort within each tissue facet by display_id so labels run ascending
   # (e.g. Brain facet -> 1,2,3,4,5,21,22). Tissue-specific bars (display_id
@@ -353,6 +356,7 @@ devmap_cc <- build_coclust_ratio_df(devmap_coclust_ratio_tests$tests) %>%
       levels = devmap_label_map[as.character(full_devmap_order)])
   )
 
+# Build the DevMap per-cluster co-clustering-rate panel (AORe vs LORe).
 devmap_cc_plot <- function(df) {
   ymax <- max(c(df$rr_hi_plot, df$rr), na.rm = TRUE)
   ggplot(df, aes(x = label_ms, y = rr)) +
@@ -386,6 +390,7 @@ bodymap_cc <- build_coclust_ratio_df(bodymap_coclust_ratio_tests$tests) %>%
   mutate(tissue = simplify_tissue(label),
          tissue = factor(tissue, levels = tissue_order))
 
+# Build the BodyMap per-cluster co-clustering-rate panel (tissue-faceted).
 bodymap_cc_plot <- function(df) {
   df <- df %>% arrange(tissue, cluster)
   df$cluster_f <- factor(df$cluster, levels = unique(df$cluster))

@@ -67,25 +67,28 @@ suppressPackageStartupMessages({
   library(tidyverse)
 })
 
-# Input assets live under data/ in this repository. The notebook
-# 04_ohnolog_coclustering.Rmd sources this script with the working directory
-# at transcriptome-analysis/, so these relative paths resolve. Generated
+# This script is sourced by 04_ohnolog_coclustering.Rmd with the working
+# directory at transcriptome-analysis/, AFTER R/setup.R has run — so the shared
+# loaders, `paths`, and read_table_anywhere() are all in scope. Generated
 # outputs are written under results/ohnolog/.
-od_path <- "."
 
 # -----------------------------------------------------------------------------
-# Load SOM fits and their underlying normalised expression matrices. The
-# matrices are used only for their row names: those row names are in the same
-# order as `som$unit.classif`, which is the integer vector of per-gene SOM
-# unit assignments produced by kohonen::som().
+# Load the deposited SOM unit assignments and normalised expression matrices
+# via the shared loaders (99_helpers.R). These inject sd_som/td_som/sb_som/
+# tb_som and sd_norm/td_norm/sb_norm/tb_norm into this environment — the exact
+# same objects 02_soms.Rmd uses — so the ohnolog analysis can never drift from
+# the rest of the pipeline. Here the matrices are used only for their row names:
+# those row names are in the same order as `som$unit.classif`, the integer
+# vector of per-gene SOM unit assignments.
 # -----------------------------------------------------------------------------
 cat("Loading SOM assignments...\n")
-load(file.path(od_path, "data/original_soms/soms.RData"))      # sd_som, sb_som, td_som, tb_som
-load(file.path(od_path, "data/original_norm_files/norm.RData")) # sd_norm, sb_norm, td_norm, tb_norm
+load_deposited_soms()   # injects sd_som, td_som, sb_som, tb_som
+load_deposited_norm()   # injects sd_norm, td_norm, sb_norm, tb_norm
 
+# Orthogroup table: always fetched from Salmobase (downloaded once, cached
+# under cache/). Same source as every other notebook in this tree.
 cat("Loading orthogroups...\n")
-og <- read_tsv(file.path(od_path, "data/orthogroups/SalmonTroutOrthologs.tsv"),
-               show_col_types = FALSE)
+og <- read_table_anywhere(paths$active$orthogroups)
 
 # -----------------------------------------------------------------------------
 # Gene → SOM cluster lookup tables. `unit.classif[i]` is the SOM unit (1..K)
