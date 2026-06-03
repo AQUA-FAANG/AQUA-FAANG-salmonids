@@ -1,5 +1,5 @@
 ---
-title: "01 — ATAC loading: consensus expression and IDR peaks"
+title: "01 — ATAC loading: consensus expression and peak subsets"
 author: "AQUA-FAANG salmonid analysis"
 date: "`r Sys.Date()`"
 output:
@@ -12,25 +12,23 @@ output:
 
 
 ```{r knitr_setup, include = FALSE}
-# Echo code, hide warnings/messages, and cache the expensive download/overlap
-# chunks so re-knits are fast.
+# Echo code, hide warnings/messages, and cache the expensive chunks under cache/.
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE,
-                      cache = TRUE)
+                      cache = TRUE, cache.path = "cache/01_atac_loading/")
 ```
 
 ## Purpose
 
-Load the per-species consensus expression tables (RDS) and the per-context IDR
-consensus peak BEDs (fetched from Salmobase) for Atlantic salmon and rainbow
-trout, build the union of robust ATAC-seq peaks per context, then produce the
-scaled fold-enrichment matrices that feed the SOM clustering in
-`02_atac_soms.Rmd`. Outputs are written to
+Load the per-species consensus expression tables and the deposited per-context
+peak subsets (the manuscript `data/atac_soms/*_idx.tsv.gz`) for Atlantic salmon
+and rainbow trout, then produce the scaled fold-enrichment matrices that feed the
+SOM clustering in `02_atac_soms.Rmd`. Outputs are written to
 `data/derived/atac_matrices_{salmon,trout}.RData`.
 
 Run `00_setup.Rmd` first so the `paths` list and helper functions are available.
 
 ```{r source_setup}
-# Shared helper functions (I/O, peak union, scaled-FE matrix builder).
+# Shared helper functions (I/O, scaled-FE matrix builder).
 source("99_helpers.R")
 # If run stand-alone (paths not yet defined), knit 00_setup.Rmd to build them.
 if (!exists("paths")) knitr::knit("00_setup.Rmd", output = tempfile())
@@ -38,13 +36,12 @@ if (!exists("paths")) knitr::knit("00_setup.Rmd", output = tempfile())
 
 # Salmon
 
-## Load the consensus expression table and IDR peak unions
+## Load the consensus expression table
 
-The consensus expression RDS holds, for every peak in the per-species union, the
-ATAC fragment counts across DevMap stages and BodyMap tissues. The IDR consensus
-BEDs (downloaded from Salmobase) define the per-tissue / per-stage robust peak
-sets; we reduce their union to the regions that pass IDR in at least one sample
-of each context.
+The consensus expression table holds, for every peak in the per-species unified
+set, the ATAC fold-enrichment across DevMap stages and BodyMap tissues. Each
+context is then restricted to the deposited manuscript peak subset (the regions
+robust in that context).
 
 ```{r load_consensus_expression_salmon}
 # Read the salmon consensus expression table (one row per peak in the union).
@@ -59,21 +56,6 @@ union_peaks_salmon <- ssal_consensus_expression %>%
   plyranges::as_granges()                                # data frame -> GRanges
 ```
 
-```{r load_idr_peaks_salmon_bodymap}
-# Download + load the salmon BodyMap IDR consensus peak BEDs (one per condition).
-bodyMap_idr_salmon <- load_idr_urls(paths$idr_bodymap_salmon_urls,
-                                    species_prefix = "AtlanticSalmon_ATAC_")
-# Reduce them to a single non-overlapping union of BodyMap robust peaks.
-bodyMap_union_salmon <- union_granges(bodyMap_idr_salmon)
-```
-
-```{r load_idr_peaks_salmon_devmap}
-# Same for the salmon DevMap IDR consensus BEDs (one per stage).
-devMap_idr_salmon <- load_idr_urls(paths$idr_devmap_salmon_urls,
-                                   species_prefix = "AtlanticSalmon_ATAC_")
-devMap_union_salmon <- union_granges(devMap_idr_salmon)
-```
-
 ## Subset to per-context peak sets and build SOM input matrices
 
 Each context-specific matrix is scaled per region (fold enrichment over the
@@ -81,8 +63,8 @@ per-sample average, then z-scaled across samples without centering) so the SOM
 operates on accessibility *shape* rather than magnitude.
 
 ```{r subset_to_devmap_ssal}
-# Indices of union peaks that overlap a DevMap robust peak.
-devMap_idx_salmon <- which(union_peaks_salmon %over% devMap_union_salmon)
+# DevMap peak subset: the deposited manuscript indices.
+devMap_idx_salmon <- read_atac_som_asset("devmap_salmon", "idx")
 # Scaled fold-enrichment matrix over the 5 DevMap ATAC columns (1:5).
 devMap_in_mat_salmon <- build_scaled_fe_matrix(
   ssal_consensus_expression[devMap_idx_salmon, ],
@@ -91,8 +73,8 @@ devMap_in_mat_salmon <- build_scaled_fe_matrix(
 ```
 
 ```{r subset_to_bodymap_ssal}
-# Indices of union peaks that overlap a BodyMap robust peak.
-bodyMap_idx_salmon <- which(union_peaks_salmon %over% bodyMap_union_salmon)
+# BodyMap peak subset: the deposited manuscript indices.
+bodyMap_idx_salmon <- read_atac_som_asset("bodymap_salmon", "idx")
 # Scaled fold-enrichment matrix over the 16 BodyMap ATAC columns (6:21).
 bodyMap_in_mat_salmon <- build_scaled_fe_matrix(
   ssal_consensus_expression[bodyMap_idx_salmon, ],
@@ -110,7 +92,7 @@ save(devMap_in_mat_salmon, bodyMap_in_mat_salmon,
 
 # Trout
 
-## Load the consensus expression table and IDR peak unions
+## Load the consensus expression table
 
 ```{r load_consensus_expression_trout}
 # Read the trout consensus expression table.
@@ -125,25 +107,11 @@ union_peaks_trout <- omyk_consensus_expression %>%
   plyranges::as_granges()
 ```
 
-```{r load_idr_peaks_trout_bodymap}
-# Download + load the trout BodyMap IDR consensus BEDs, then union them.
-bodyMap_idr_trout <- load_idr_urls(paths$idr_bodymap_trout_urls,
-                                   species_prefix = "RainbowTrout_ATAC_")
-bodyMap_union_trout <- union_granges(bodyMap_idr_trout)
-```
-
-```{r load_idr_peaks_trout_devmap}
-# Download + load the trout DevMap IDR consensus BEDs, then union them.
-devMap_idr_trout <- load_idr_urls(paths$idr_devmap_trout_urls,
-                                  species_prefix = "RainbowTrout_ATAC_")
-devMap_union_trout <- union_granges(devMap_idr_trout)
-```
-
 ## Subset to per-context peak sets and build SOM input matrices
 
 ```{r subset_to_devmap_trout}
-# DevMap: overlap indices then the scaled FE matrix over columns 1:5.
-devMap_idx_trout <- which(union_peaks_trout %over% devMap_union_trout)
+# DevMap subset: the deposited manuscript indices.
+devMap_idx_trout <- read_atac_som_asset("devmap_trout", "idx")
 devMap_in_mat_trout <- build_scaled_fe_matrix(
   omyk_consensus_expression[devMap_idx_trout, ],
   atac_col_idx = 1:5
@@ -151,9 +119,9 @@ devMap_in_mat_trout <- build_scaled_fe_matrix(
 ```
 
 ```{r subset_to_bodymap_trout}
-# BodyMap: overlap indices then the scaled FE matrix over columns 6:17
-# (trout BodyMap has 12 ATAC columns, vs 16 in salmon).
-bodyMap_idx_trout <- which(union_peaks_trout %over% bodyMap_union_trout)
+# BodyMap subset: the deposited manuscript indices. Trout BodyMap has 12 ATAC
+# columns (6:17), vs 16 in salmon.
+bodyMap_idx_trout <- read_atac_som_asset("bodymap_trout", "idx")
 bodyMap_in_mat_trout <- build_scaled_fe_matrix(
   omyk_consensus_expression[bodyMap_idx_trout, ],
   atac_col_idx = 6:17

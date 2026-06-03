@@ -15,7 +15,7 @@ output:
 # Echo code, suppress warnings/messages in the rendered HTML, and cache the
 # expensive heatmap chunks so re-knits are fast.
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE,
-                      cache = TRUE)
+                      cache = TRUE, cache.path = "cache/03_fig2B/")
 ```
 
 ## Purpose
@@ -38,9 +38,16 @@ source("99_helpers.R")
 # If `paths` is not already in the session, knit 00_setup.Rmd to define it.
 if (!exists("paths")) knitr::knit("00_setup.Rmd", output = tempfile())
 # Derived SOM input matrices + fitted SOMs + UMAP embeddings (from 01 and 02).
-load(file.path(paths$derived_dir, "atac_matrices_salmon.RData"))
-load(file.path(paths$derived_dir, "atac_matrices_trout.RData"))
-load(file.path(paths$derived_dir, "atac_soms.RData"))
+# Fail early with a clear message if those notebooks have not been run yet.
+.need <- file.path(paths$derived_dir,
+                   c("atac_matrices_salmon.RData", "atac_matrices_trout.RData",
+                     "atac_soms.RData"))
+if (!all(file.exists(.need))) {
+  stop("Missing ", paste(basename(.need[!file.exists(.need)]), collapse = ", "),
+       " in ", paths$derived_dir, ". Knit 01_atac_loading.Rmd and ",
+       "02_atac_soms.Rmd first (run the notebooks in order 00 -> 01 -> 02 -> 03).")
+}
+for (f in .need) load(f)
 
 # Shared heatmap colour scale: cividis ramp over the 0..2 normalised-intensity
 # range used by every ATAC heatmap below.

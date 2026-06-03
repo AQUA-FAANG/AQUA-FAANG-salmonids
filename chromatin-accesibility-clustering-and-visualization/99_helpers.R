@@ -2,50 +2,24 @@
 
 # === I/O ===
 
-#' Download (if needed) and load a list of Salmobase IDR-consensus peak
-#' BED files into a named list of GRanges.
-#'
-#' Salmobase publishes these as 14-column extended BEDs carrying
-#' ChromHMM annotations beyond standard BED6, so we read only the first
-#' three columns (chrom, start, end) — that is all the downstream
-#' `union_granges() / findOverlaps()` calls need. Files are cached under
-#' `cache_dir` keyed by basename so subsequent runs do not re-hit the
-#' network.
-#'
-#' @param urls character vector of Salmobase .bed URLs.
-#' @param species_prefix prefix to strip from each basename when building
-#'   list names — e.g. "AtlanticSalmon_ATAC_" or "RainbowTrout_ATAC_".
-#' @param cache_dir local directory to stash downloaded .bed files in.
-load_idr_urls <- function(urls,
-                          species_prefix = "",
-                          cache_dir = "cache/atac_peaks/") {
-  if (!dir.exists(cache_dir)) dir.create(cache_dir, recursive = TRUE)
-  out <- lapply(urls, function(u) {
-    dst <- file.path(cache_dir, basename(u))
-    if (!file.exists(dst)) {
-      utils::download.file(u, dst, mode = "wb", quiet = TRUE)
-    }
-    tbl <- readr::read_tsv(dst, col_names = FALSE, col_select = 1:3,
-                           col_types = "cii",
-                           show_col_types = FALSE)
-    GenomicRanges::makeGRangesFromDataFrame(
-      data.frame(seqnames = tbl[[1]],
-                 start    = tbl[[2]],
-                 end      = tbl[[3]]),
-      starts.in.df.are.0based = TRUE
-    )
-  })
-  bases <- sub("\\.(bb|bed|narrowPeak)$", "", basename(urls))
-  if (nzchar(species_prefix)) {
-    bases <- sub(species_prefix, "", bases, fixed = TRUE)
-  }
-  names(out) <- bases
-  out
-}
-
-#' Reduce a list of GRanges into a single union (non-overlapping intervals).
-union_granges <- function(gr_list) {
-  as(gr_list, "GRangesList") %>% unlist() %>% GenomicRanges::reduce()
+#' Read a deposited ATAC SOM asset, `{tag}_{what}.tsv.gz` under
+#' `dir` (default data/atac_soms/). These are the exact manuscript SOM products
+#' loaded by 01/02 (the ATAC analogue of the transcriptome data/soms/).
+#' `tag` is one of devmap_salmon / bodymap_salmon / devmap_trout /
+#' bodymap_trout; `what` is one of:
+#'   "idx"          peak subset (row indices into consensus_expression)
+#'   "unit_classif" SOM unit per subset peak (row-aligned to the FE matrix)
+#'   "superclasses" PAM(k=4) super-cluster per SOM unit (length 25)
+#'   "umap"         2-D UMAP coordinates per subset peak (matrix, cols V1,V2)
+read_atac_som_asset <- function(tag, what, dir = "data/atac_soms") {
+  tbl <- readr::read_tsv(file.path(dir, paste0(tag, "_", what, ".tsv.gz")),
+                         show_col_types = FALSE)
+  switch(what,
+         idx          = as.integer(tbl$idx),
+         unit_classif = as.integer(tbl$unit),
+         superclasses = as.integer(tbl$superclass),
+         umap         = as.matrix(tbl[, c("V1", "V2")]),
+         stop("unknown asset '", what, "'"))
 }
 
 #' Build the scaled fold-enrichment matrix used as SOM input. ATAC columns are
@@ -60,23 +34,7 @@ build_scaled_fe_matrix <- function(expression_df, atac_col_idx) {
   fe %>% as.matrix() %>% t() %>% scale(center = FALSE) %>% t()
 }
 
-# === SOM wrappers ===
-
-#' Fit a 5 x 5 hexagonal SOM with the legacy somInit initialisation. The
-#' wrapper sets the seed for reproducibility and returns the kohonen SOM
-#' object.
-#'
-#' @param in_mat scaled fold-enrichment matrix (regions x samples).
-#' @param xdim,ydim grid dimensions; default 5 x 5.
-#' @param seed integer seed; default 12345 to match the manuscript.
-fit_atac_som <- function(in_mat, xdim = 5, ydim = 5, seed = 12345) {
-  set.seed(seed)                                          # seed the PCA-based init
-  init <- aweSOM::somInit(traindat = in_mat, xdim, ydim)  # deterministic starting codes
-  set.seed(seed)                                          # re-seed so training is reproducible
-  kohonen::som(in_mat,
-               grid = kohonen::somgrid(xdim, ydim, "hexagonal"),
-               init = init)
-}
+# === SOM summary ===
 
 #' Ported from SOMbodymapATACfunc.R. Builds the per-unit label vector, long
 #' tidy frame and per-unit mean/sd table used by the ribbon plots, then
@@ -127,11 +85,6 @@ get_som <- function(in_mat, xdim, ydim, somvar) {
        tmp_df = tmp_df,
        stat = sum_stat,
        plot = out_plot)
-}
-
-#' Convenience: PAM super-clustering on a SOM's prototype codes.
-pam_superclusters <- function(som_obj, k = 4) {
-  cluster::pam(som_obj$codes[[1]], k)$clustering
 }
 
 # === palettes ===

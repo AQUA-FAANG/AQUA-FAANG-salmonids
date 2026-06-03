@@ -12,12 +12,13 @@ output:
 
 
 ```{r knitr_setup, include = FALSE}
-# Echo code, hide warnings/messages, and cache expensive chunks.
+# Echo code, hide warnings/messages, and cache the expensive chunks under cache/.
 knitr::opts_chunk$set(
   echo = TRUE,
   warning = FALSE,
   message = FALSE,
-  cache = TRUE
+  cache = TRUE,
+  cache.path = "cache/00_setup/"
 )
 ```
 
@@ -31,29 +32,44 @@ sources the shared helpers from `99_helpers.R`. Knit this notebook first;
 
 ### Where the input data comes from
 
-- **IDR consensus peak BEDs** — fetched on first use from Salmobase
-  (`robust_ATAC_peaks/annotated_peaks/`), cached under `cache/`. Nothing is
-  shipped in the repo.
-- **Per-species consensus expression RDS** — the one input not yet redistributed
-  (the tables are large; a Zenodo deposit / regeneration from the
-  `robust-open-chromatin/` pipeline is pending). For now they live locally under
-  `data/atac/`, materialised from the manuscript-state OneDrive bundles by
-  `scripts/extract_legacy_consensus_expression_rdata.R` (see the README).
+All inputs are the deposited manuscript assets shipped in this repository, so the
+analysis runs offline and reproduces the published Figure 2B exactly:
+
+- **Per-species consensus-expression tables** — `data/atac/*_consensus_expression.rds`
+  (the unified robust-peak set × per-condition ATAC fold-enrichment).
+- **Per-context SOM assets** — `data/atac_soms/` (the manuscript peak subsets,
+  SOM unit assignments, super-clusters and UMAP coordinates).
+
+## Working directory
+
+The notebooks use paths relative to this folder
+(`chromatin-accesibility-clustering-and-visualization/`). Knitting with
+`rmarkdown::render()` or the RStudio **Knit** button handles this automatically.
+If you instead run the chunks interactively, first set the working directory to
+this folder. The check below fails early with a clear message rather than later
+with a confusing "file not found".
+
+```{r working_dir_check}
+if (!file.exists("99_helpers.R")) {
+  stop("Working directory is not the chromatin notebook folder.\n",
+       "  Run the notebooks from ",
+       "chromatin-accesibility-clustering-and-visualization/ ",
+       "(e.g. setwd() to it, or open this .Rmd from that folder and Knit).\n",
+       "  Current working directory: ", getwd())
+}
+```
 
 ## R package dependencies
 
-CRAN + Bioconductor packages used across `00..03`: I/O of consensus expression
-tables and BED peaks (`data.table`, `plyranges`, `rtracklayer`, `GenomicRanges`),
-SOM fitting + dimensionality reduction (`kohonen`, `cluster`, `uwot`, `aweSOM`),
-heatmaps (`ComplexHeatmap`, `circlize`), figure assembly (`gtable`, `gridExtra`),
-and `tidyverse` + `viridis` for wrangling + palettes. They are auto-installed on
-a fresh R session.
+CRAN + Bioconductor packages used across `00..03`: GRanges handling of the peak
+coordinates (`plyranges`, `GenomicRanges`), heatmaps (`ComplexHeatmap`,
+`circlize`), figure assembly (`gtable`, `gridExtra`), and `tidyverse` + `viridis`
+for wrangling + palettes. They are auto-installed on a fresh R session.
 
 ```{r r_packages}
 # Full dependency set for this notebook tree, split by repository.
-.cran_pkgs <- c("circlize", "tidyverse", "viridis", "data.table", "gtable",
-                "gridExtra", "kohonen", "uwot", "cluster", "aweSOM")
-.bioc_pkgs <- c("ComplexHeatmap", "plyranges", "rtracklayer", "GenomicRanges")
+.cran_pkgs <- c("circlize", "tidyverse", "viridis", "gtable", "gridExtra")
+.bioc_pkgs <- c("ComplexHeatmap", "plyranges", "GenomicRanges")
 
 # .ensure_pkgs — install any listed package not already available (CRAN via
 # install.packages, Bioconductor via BiocManager); a no-op on a configured machine.
@@ -85,14 +101,9 @@ suppressPackageStartupMessages({
   library(tidyverse)       # dplyr/ggplot2/stringr/readr/...
   library(viridis)         # cividis/inferno palettes
   library(ComplexHeatmap)  # ATAC SOM heatmaps
-  library(data.table)      # fast table handling
   library(gtable)          # grob table manipulation for the composite
   library(gridExtra)       # arrange grobs into the composite
-  library(kohonen)         # self-organising map fitting
-  library(uwot)            # UMAP embeddings
-  library(cluster)         # PAM super-clustering
-  library(plyranges)       # tidy GRanges (as_granges, %over%)
-  library(rtracklayer)     # BED/peak import
+  library(plyranges)       # tidy GRanges (as_granges)
 })
 
 # Record exact package versions for provenance.
@@ -101,65 +112,35 @@ sessionInfo()
 
 ## Data paths
 
-`paths` lists, for both species: the local consensus-expression RDS files, the
-Salmobase IDR-consensus peak BED URLs (one per condition for BodyMap, one per
-stage for DevMap), and the output directories. The peak BEDs are downloaded +
-cached on first use; the RDS files must already be present under `data/atac/`
-(see Purpose).
+`paths` records, for both species, the deposited consensus-expression tables
+that `01_atac_loading.Rmd` reads, plus the output directories.
 
 ```{r paths_config}
-# Salmobase robust ATAC peak files (per-condition IDR-consensus bigBeds)
-# are the authoritative source for the per-context peak sets. The
-# canonical lists live at:
-#   https://salmobase.org/datafiles/datasets/Aqua-Faang/robust_ATAC_peaks/{salmon,trout}_files.txt
-# We hard-code the URL set here so the notebook does not need to parse the
-# index on every knit; the index file is also written to data/derived/ for
-# provenance.
-.peaks_root <- "https://salmobase.org/datafiles/datasets/Aqua-Faang/robust_ATAC_peaks/annotated_peaks"
-
-.salmon_bodymap_conds <- c(
-  "Brain_Immature_Female",  "Brain_Immature_Male",
-  "Brain_Mature_Female",    "Brain_Mature_Male",
-  "Gonad_Immature_Female",  "Gonad_Immature_Male",
-  "Gonad_Mature_Female",    "Gonad_Mature_Male",
-  "Liver_Immature_Female",  "Liver_Immature_Male",
-  "Liver_Mature_Female",    "Liver_Mature_Male",
-  "Muscle_Immature_Female", "Muscle_Immature_Male",
-  "Muscle_Mature_Female",   "Muscle_Mature_Male"
-)
-.trout_bodymap_conds <- c(
-  "Brain_Immature_Female",  "Brain_Immature_Male",
-  "Brain_Mature_Female",    "Brain_Mature_Male",
-  "Liver_Immature_Female",  "Liver_Immature_Male",
-  "Liver_Mature_Female",    "Liver_Mature_Male",
-  "Muscle_Immature_Female", "Muscle_Immature_Male",
-  "Muscle_Mature_Female",   "Muscle_Mature_Male"
-)
-.devmap_stages <- c("LateBlastulation", "MidGastrulation",
-                    "EarlySomitogenesis", "MidSomitogenesis",
-                    "LateSomitogenesis")
-
 paths <- list(
-  consensus_expression_salmon = "data/atac/AtlanticSalmon_consensus_expression.RDS",
-  consensus_expression_trout  = "data/atac/RainbowTrout_consensus_expression.RDS",
-  idr_bodymap_salmon_urls = sprintf(
-    "%s/AtlanticSalmon/BodyMap/AtlanticSalmon_ATAC_%s.bed",
-    .peaks_root, .salmon_bodymap_conds),
-  idr_devmap_salmon_urls = sprintf(
-    "%s/AtlanticSalmon/DevMap/AtlanticSalmon_ATAC_%s.bed",
-    .peaks_root, .devmap_stages),
-  idr_bodymap_trout_urls = sprintf(
-    "%s/RainbowTrout/BodyMap/RainbowTrout_ATAC_%s.bed",
-    .peaks_root, .trout_bodymap_conds),
-  idr_devmap_trout_urls = sprintf(
-    "%s/RainbowTrout/DevMap/RainbowTrout_ATAC_%s.bed",
-    .peaks_root, .devmap_stages),
+  consensus_expression_salmon = "data/atac/AtlanticSalmon_consensus_expression.rds",
+  consensus_expression_trout  = "data/atac/RainbowTrout_consensus_expression.rds",
   derived_dir = "data/derived/",
   results_dir = "results/"
 )
 
 dir.create(paths$derived_dir, showWarnings = FALSE, recursive = TRUE)
 dir.create(paths$results_dir, showWarnings = FALSE, recursive = TRUE)
+```
+
+## Check the deposited inputs are present
+
+The consensus-expression tables and the SOM assets (read by `01` and `02`) ship
+with the repository. Fail early with a clear message if a checkout is missing
+them, rather than later with a confusing read error.
+
+```{r check_deposited_inputs}
+.needed <- c(paths$consensus_expression_salmon, paths$consensus_expression_trout,
+             "data/atac_soms/devmap_salmon_idx.tsv.gz")
+if (!all(file.exists(.needed))) {
+  stop("deposited inputs are missing: ",
+       paste(.needed[!file.exists(.needed)], collapse = ", "),
+       ". They ship with the repository — re-checkout to restore them.")
+}
 ```
 
 ## Helpers
