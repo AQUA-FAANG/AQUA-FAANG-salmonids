@@ -30,6 +30,7 @@ Analyse conservation across:
 Generate figures and summary statistics
 
 Generate circos visualization of rediploidization regions
+Generate plot for TE density vs Active enhancers
 ```
 ## Repository Structure
 
@@ -50,6 +51,10 @@ Generate circos visualization of rediploidization regions
 
 ### 06_circos_figure_4B.R  
 *Generates the circos plot shown in Figure 4B.*  
+*This script is independent from the main conservation pipeline and can be run separately.*
+
+### 07_overlap_TEs_active_enhancers.R
+*Generates Supplementary figure for TE x active enhancer density across ontogeny*
 *This script is independent from the main conservation pipeline and can be run separately.*
 
 
