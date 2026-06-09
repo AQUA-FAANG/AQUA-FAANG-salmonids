@@ -19,7 +19,7 @@ The workflow consists of five modular steps:
 ## Workflow description
 
 ### 1. CNE preprocessing (01_prepare_CNE_regions_for_maelstrom.R)
-Purpose:  
+**Purpose:**  
 Prepares conserved non-coding elements (CNEs) for motif analysis by:  
 *Merging nearby CNEs within a defined distance threshold*  
 *Ensuring minimum region size*  
@@ -27,15 +27,15 @@ Prepares conserved non-coding elements (CNEs) for motif analysis by:
 *Generating Maelstrom-compatible region files*  
 
 ### 2. Maelstrom motif enrichment – Age analysis Script (02_run_gimme_maelstrom_age.sh)  
-Purpose:  
+**Purpose:**  
 *Runs GimmeMotifs Maelstrom to identify motif enrichment across evolutionary age categories.*  
 
 ### 3. Maelstrom motif enrichment – Age × Conservation Script (03_run_gimme_maelstrom_age_conservation.sh)  
-Purpose:  
+**Purpose:**  
 *Identifies motif enrichment patterns across combined evolutionary age and conservation context, enabling detection of interaction effects.*  
 
 ### 4. Motif visualization and enrichment analysis Script(04_plot_maelstrom_results.R)  
-Purpose:  
+**Purpose:**  
 Processes Maelstrom outputs to generate:  
 *Top enriched motifs per category*  
 *Non-redundant motif families*  
@@ -45,7 +45,7 @@ Processes Maelstrom outputs to generate:
 *Age × conservation interactions*  
 
 ### 5. Motif annotation and logo generation Script (05_add_motif_logos.py)  
-Purpose:  
+**Purpose:**  
 Automatically annotates motif enrichment results with:  
 *Transcription factor (TF) names*  
 *Motif family classification*  
