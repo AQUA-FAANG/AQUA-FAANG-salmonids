@@ -66,55 +66,23 @@ README** with the detailed method and script-by-script description. They are
 listed below roughly in pipeline order; the "Figure" column shows the main
 manuscript figure each one feeds.
 
-| Directory | What it does | Figure |
+| Directory | What it does | Related figure(s) |
 |---|---|---|
-| [`nfcore-pipelines/`](nfcore-pipelines/) | Raw RNA-seq / ATAC-seq / ChIP-seq processing via nf-core (alignment, quantification, peak calling) and sample-design generation. | Fig. 1 |
-| [`blacklist-regions/`](blacklist-regions/) | Build genome-specific blacklist tracks (Umap mappability + Blacklist) to mask signal-artefact regions. | Fig. 1 |
-| [`chromatin-state-annotations/`](chromatin-state-annotations/) | ChromHMM genome-wide chromatin-state models and per-condition segmentations. | Fig. 1c–f |
-| [`robust-open-chromatin/`](robust-open-chromatin/) | Define reproducible ATAC peaks (IDR), refine summits, assign chromatin states, build the unified robust open-chromatin atlas and assay-count tables. | Fig. 1 |
-| [`homology-prediction/`](homology-prediction/) | Identify high-confidence 4R ohnologs and salmon–trout orthologs from Ensembl Compara trees + synteny. | Fig. 1 |
-| [`genome-alignment/`](genome-alignment/) | Whole-genome alignment of salmon, trout and pike with Cactus, split by syntenic blocks; coordinate conversion, liftover and PAF/bigWig tooling. | Fig. 1g |
-| [`TFBS/`](TFBS/) | Validate active promoters/enhancers by TF-binding-site enrichment (GimmeMotifs maelstrom, JASPAR). | Suppl. |
-| [`transcriptome-analysis/`](transcriptome-analysis/) | RNA-seq clustering (SOMs/UMAP), GO enrichment, ortholog/ohnolog SOM co-clustering. | Fig. 2A |
-| [`chromatin-accesibility-clustering-and-visualization/`](chromatin-accesibility-clustering-and-visualization/) | ATAC-seq clustering (SOMs/UMAP) and the chromatin panels of Figure 2. | Fig. 2B |
-| [`promoter_enchancer_conservation/`](promoter_enchancer_conservation/) | Promoter/enhancer conservation categories (Shared / Alignable / Exclusive) across ontogeny and rediploidization; circos and TE-overlap panels; ohnolog expression-divergence / enhancer-usage analyses. | Fig. 3, 4, 5 |
-| [`enhancer_CNE_evolution/`](enhancer_CNE_evolution/) | Evolutionary fate of enhancer-associated conserved non-coding elements (CNEs) by phylogenetic age and conservation class. | Fig. 6 |
-| [`enhancer_CNE_motif_analysis/`](enhancer_CNE_motif_analysis/) | TF-motif enrichment in enhancer-CNEs across age and conservation (GimmeMotifs maelstrom) with motif logos. | Fig. 6 / Ext. Data Fig. 8 |
+| [`nfcore-pipelines/`](nfcore-pipelines/) | Raw RNA-seq / ATAC-seq / ChIP-seq processing via nf-core (alignment, quantification, peak calling) and sample-design generation. | Upstream of all; design schematic Fig. 1a,b |
+| [`blacklist-regions/`](blacklist-regions/) | Build genome-specific blacklist tracks (Umap mappability + Blacklist) to mask signal-artefact regions. | Upstream masking (not a plotted panel) |
+| [`chromatin-state-annotations/`](chromatin-state-annotations/) | ChromHMM genome-wide chromatin-state models and per-condition segmentations. | Fig. 1c,d (states/colours also in 1e,1g); trout = Ext. Data Fig. 1 |
+| [`robust-open-chromatin/`](robust-open-chromatin/) | Define reproducible ATAC peaks (IDR), refine summits, assign chromatin states, build the unified robust open-chromatin atlas and assay-count tables. | Fig. 1e,f (feeds 1g); peak/promoter/enhancer sets used throughout |
+| [`homology-prediction/`](homology-prediction/) | Identify high-confidence 4R ohnologs and salmon–trout orthologs from Ensembl Compara trees + synteny. | Foundational — example in Fig. 1g; underpins Fig. 2c, 3, 5, 6 |
+| [`genome-alignment/`](genome-alignment/) | Whole-genome alignment of salmon, trout and pike with Cactus, split by syntenic blocks; coordinate conversion, liftover and PAF/bigWig tooling. | Foundational — Fig. 1g (track), 2d, 4, 5, 6 |
+| [`TFBS/`](TFBS/) | Validate active promoters/enhancers by TF-binding-site enrichment (GimmeMotifs maelstrom, JASPAR). | Supplementary (TFBS validation; Supp. Figs. 10–12) |
+| [`transcriptome-analysis/`](transcriptome-analysis/) | RNA-seq clustering (SOMs/UMAP), GO enrichment, ortholog/ohnolog SOM co-clustering. | Fig. 2a,c; Ext. Data Figs. 4a,c, 5, 6; GO = Suppl. |
+| [`chromatin-accesibility-clustering-and-visualization/`](chromatin-accesibility-clustering-and-visualization/) | ATAC-seq clustering (SOMs/UMAP) and the chromatin panels of Figure 2. | Fig. 2b,d; Ext. Data Fig. 4b,d |
+| [`promoter_enchancer_conservation/`](promoter_enchancer_conservation/) | Promoter/enhancer conservation categories (Shared / Alignable / Exclusive) across ontogeny and rediploidization; circos and TE-overlap panels; conservation-vs-JSD correlations. | Fig. 4 (4B circos, 4C/4D proportions + TE/JSD-correlation panels) |
+| [`enhancer_CNE_evolution/`](enhancer_CNE_evolution/) | Evolutionary fate of enhancer-associated conserved non-coding elements (CNEs) by phylogenetic age and conservation class. | Fig. 6a,b |
+| [`enhancer_CNE_motif_analysis/`](enhancer_CNE_motif_analysis/) | TF-motif enrichment in enhancer-CNEs across age and conservation (GimmeMotifs maelstrom) with motif logos. | Ext. Data Fig. 8 (supports Fig. 6) |
 
 > Note on figure attribution: Figures are assembled in Illustrator from several
-> sources, so no single script produces a whole figure. The ohnolog
-> expression-divergence (Jensen–Shannon distance) and enhancer-usage analyses
-> behind **Figures 3 and 5** live inside `promoter_enchancer_conservation/`
-> (e.g. `05_promoter_active_enhancer_dynamics_across_ontogeny.R`) and the
-> transcriptome SOM co-clustering notebooks; see each directory's README for the
-> exact panel mapping.
-
-## Analysis workflow
-
-The pipeline flows from raw reads to the comparative analyses; later stages
-consume the outputs of earlier ones:
-
-```
-                      reference genomes (Ensembl) + raw reads (FAANG/ENA)
-                                        │
-                                nfcore-pipelines        (RNA/ATAC/ChIP processing)
-                                        │
-                ┌───────────────────────┼───────────────────────────┐
-        blacklist-regions      chromatin-state-annotations    homology-prediction
-                │                       │                       (ohnologs/orthologs)
-                └──────────┬────────────┘                              │
-                  robust-open-chromatin                                │
-                  (unified peaks, promoters, enhancers,                │
-                   assay-count tables)                                 │
-                           │                                           │
-                           │            genome-alignment (Cactus: salmon/trout/pike)
-                           │                       │                   │
-   ┌───────────────────────┼───────────────────────┼───────────────────┤
-   │                       │                       │                   │
- TFBS        transcriptome- &  chromatin-     promoter_enchancer_   enhancer_CNE_*
- (validation)  accessibility clustering       conservation          (CNE + motif)
-               → Fig. 2                        → Fig. 3, 4, 5        → Fig. 6
-```
+> sources, so no single script produces a whole figure.
 
 ## How to run
 
@@ -196,11 +164,3 @@ the manuscript Methods):
   kohonen, uwot, ComplexHeatmap, preprocessCore, phylentropy, clusterProfiler,
   AnnotationForge, biomaRt, circlize, ggalluvial, UpSetR, mclust, ggpubr.
 
-## Citation
-
-Baudement M-O, Perojil Morata D, Gillard GB, *et al.* *Salmonids reveal
-principles of regulatory evolution following autotetraploidization.* (See
-`revised_manuscript.pdf` in this repository for the full author list and
-methods.)
-</content>
-</invoke>
