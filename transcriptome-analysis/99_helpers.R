@@ -116,7 +116,9 @@ merge_reps_devmap <- function(unmerged) {
                    id.vars = "gene_id",
                    variable.name = "sample",
                    value.name = "tpm")
-  unmerged[, c("stage", "replicate") := tstrsplit(sample, "_R", fixed = TRUE)]
+  # Strip the trailing replicate tag (_R1/_R2/...) to recover the stage. Robust to
+  # a sample prefix such as "AtlanticSalmon_RNA_" that itself contains "_R".
+  unmerged[, stage := sub("_R[0-9]+$", "", as.character(sample))]
 
   merged <- unmerged[, .(tpm = mean(tpm, na.rm = TRUE)),
                      by = .(gene_id, stage)]

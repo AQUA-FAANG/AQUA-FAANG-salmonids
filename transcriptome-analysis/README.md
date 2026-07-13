@@ -21,6 +21,7 @@ stratified by rediploidization timing.
 | `04_ohnolog_coclustering.Rmd` | Per-cluster composition and per-pair co-clustering of AORe and LORe salmon ohnologs across the DevMap and BodyMap SOMs (supplementary figures). |
 | `05_observed_expected.Rmd` | Observed vs expected ortholog co-clustering against a 10,000-permutation null — this produces the **Fig 2A observed/expected ratio bands**. RNA and ATAC Sankeys. |
 | `06_go.Rmd` | GO biological-process enrichment via `compareCluster` for the four SOMs. |
+| `07_fig3_transcriptome_divergence.Rmd` | Jensen-Shannon expression divergence between ohnolog pairs (AORe/LORe) and ortholog pairs (ohnolog vs singleton), with a 100-bootstrap mean/SD per sample. Produces **Figure 3a-d** and **Supplementary Fig. 29**. |
 | `99_helpers.R` | I/O, deposited-asset loaders, normalisation, SOM fit/annotation, palettes, heatmap builders. |
 | `99a_make_orgdb_salmon.Rmd` | Build and install `org.Ssalar.eg.db` from Ensembl BioMart. |
 | `99b_make_orgdb_trout.Rmd` | Build and install `org.Omykiss.eg.db` from Ensembl BioMart. |
@@ -46,7 +47,7 @@ Open `00_setup.Rmd` in RStudio and run its chunks top to bottom. The first
 chunk already selects the default `reproduce` mode, so you can simply run it as
 is — no edit required. Sourcing `R/setup.R` then loads packages, declares
 `paths`, creates `./data`, `./results` and `./cache`, and prints the resolved
-configuration. Then run `01..06` **in order, in the same R session** (later
+configuration. Then run `01..07` **in order, in the same R session** (later
 notebooks reuse objects created by earlier ones).
 
 To use the alternative mode or the fast smoke-test shortcut, change the options

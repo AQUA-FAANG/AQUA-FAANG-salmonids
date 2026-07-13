@@ -1,0 +1,257 @@
+---
+title: "07 — Figure 3: transcriptome divergence (JSD)"
+author: "AQUA-FAANG salmonid analysis"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: show
+    toc: true
+    toc_float: true
+---
+
+## Overview
+
+Figure 3: expression divergence between paired genes, measured as the square root
+of the Jensen-Shannon divergence (JSD) between the two members of a pair, with a
+100-sample bootstrap over pairs giving the mean and standard deviation per sample.
+Two pairings are compared:
+
+- **Ohnolog pairs** (salmon 4R duplicates, split by Early = AORe / Late = LORe
+  rediploidization): panels a (DevMap) and b (BodyMap).
+- **Ortholog pairs** (salmon vs trout), split into pairs retained as ohnologs in
+  both species (`ortho22`) vs singletons where one copy was lost in the ancestor
+  (`ortho11`): panels c (DevMap) and d (BodyMap).
+
+This notebook produces exactly the published items from this analysis: **Figure 3a-d**
+and **Supplementary Fig. 29** (the ohnolog-vs-ortholog and AORe-vs-LORe JSD
+correlation scatterplots). Nothing else.
+
+Mode handling (see `00_setup.Rmd`):
+
+- **`reproduce` mode** (default): load the deposited per-sample JSD tables
+  (`data/fig3/divergence_output.rds`) and re-plot. These are exactly the values behind
+  the manuscript figures, so Figure 3 and Supplementary Fig. 29 reproduce bit-for-bit.
+  The original bootstrap was unseeded, so the published numbers can only be reproduced
+  by loading them.
+- **`recompute` mode**: rebuild the JSD tables from the merged TPM matrices created by
+  `01_data_loading.Rmd` (`sd_merged`, `td_merged`, `sb_merged`, `tb_merged`) and the
+  `orthogroups` table, under `set.seed(FIG3_SEED)`. A `divergence_output_regen.rds` is
+  written so the deposited asset is never overwritten.
+
+```{r setup_chain, include=FALSE}
+# Packages, constants, paths, helpers and the deposited-asset loaders.
+source("R/setup.R")
+library(philentropy)   # JSD()
+library(gridExtra)     # grid.arrange()
+library(ggpubr)        # ggscatter(), stat_cor()
+if (!dir.exists("data/fig3")) dir.create("data/fig3", recursive = TRUE)
+
+# Seed for the recompute bootstrap. The published run was unseeded, so this only
+# makes re-derivation deterministic; it does not recover the exact published draws,
+# which are shipped in data/fig3/divergence_output.rds for reproduce mode.
+FIG3_SEED <- 1
+
+# The four pairings that appear in the paper (Fig 3a-d and Supplementary Fig. 29).
+PAIRINGS <- c("a22s", "l22s", "ortho11", "ortho22")
+
+# BodyMap tissue plotting order.
+TISSUE_LEVELS <- c("Brain", "Testes", "Gill", "DistalIntestine",
+                   "HeadKidney", "Ova", "Muscle", "Liver")
+```
+
+## Pair selection and the JSD statistic
+
+```{r fig3_functions}
+# Select a gene-pair list from the orthogroup table:
+#   a22s     salmon AORe (Early) 2:2 ohnolog pairs (two salmon copies per subOG)
+#   l22s     salmon LORe (Late)  2:2 ohnolog pairs
+#   ortho22  salmon-trout orthologs where both are retained as 2:2 ohnologs
+#   ortho11  1:1 salmon-trout orthologs where the pair is a singleton
+get_gene_pairs <- function(phyl) {
+  if (phyl == "a22s") {
+    orthogroups %>% filter(spc == "Ssal" & nSsal == 2 & nOmyk == 2 & phylogeny == "AORe") %>% dplyr::select(1, 3)
+  } else if (phyl == "l22s") {
+    orthogroups %>% filter(spc == "Ssal" & nSsal == 2 & nOmyk == 2 & phylogeny == "LORe") %>% dplyr::select(1, 3)
+  } else if (phyl == "ortho11") {
+    orthogroups %>%
+      filter(nSsal == 1 & nOmyk == 1 & proxiPhylogeny == "AORe" & reciprocal == "FALSE") %>%
+      dplyr::select(geneID, subOG)
+  } else if (phyl == "ortho22") {
+    validSynteny <- unique(na.omit(orthogroups$proxiSynteny))
+    orthogroups %>%
+      filter(nSsal == 2 & nOmyk == 2 & phylogeny == "AORe" & synteny %in% validSynteny) %>%
+      mutate(AB = strsplit(gsub("[()]", "", synteny), split = ",")) %>%
+      rowwise() %>% mutate(AB = match(chr, AB)) %>% ungroup() %>%
+      mutate(AB = c("A", "A", "B", "B")[AB]) %>%
+      dplyr::select(geneID, subOG)
+  } else {
+    stop("unknown pairing: ", phyl)
+  }
+}
+
+# sqrt(JSD) between two expression profiles: quantile-normalise the pair of columns,
+# convert each to a probability vector, then Jensen-Shannon divergence.
+JSDfun <- function(x1, x2) {
+  x <- cbind(x1, x2) %>% as.matrix() %>% preprocessCore::normalize.quantiles()
+  x[, 1] <- x[, 1] / sum(x[, 1])
+  x[, 2] <- x[, 2] / sum(x[, 2])
+  x <- t(x)
+  suppressMessages(d <- sqrt(JSD(x, unit = "log")))
+  d
+}
+```
+
+## Compute (recompute) or load (reproduce) the per-sample JSD tables
+
+```{r fig3_divergence}
+if (DATA_MODE == "reproduce") {
+  # The exact per-sample JSD tables behind Fig 3a-d and Supplementary Fig. 29.
+  divergence_output <- readRDS("data/fig3/divergence_output.rds")
+  stages <- divergence_output$a22s$devmap$data$stage
+} else {
+  set.seed(FIG3_SEED)
+
+  # Merge the four TPM matrices built by 01_data_loading.Rmd into one DevMap and one
+  # BodyMap matrix (ortholog pairs span both species, so salmon and trout rows share a
+  # matrix). BodyMap collapses sex within each tissue x maturity.
+  tb_merged$Testes_Mature_Male <- NA
+  devmap  <- rbind(sd_merged, td_merged)
+  bodymap <- rbind(sb_merged, tb_merged) %>%
+    rownames_to_column(var = "geneID") %>%
+    pivot_longer(cols = -geneID, names_to = "sample", values_to = "tpm") %>%
+    separate(sample, into = c("Tissue", "Maturity", "Sex"), sep = "_") %>%
+    unite("Name", Tissue:Maturity, sep = "_") %>%
+    group_by(geneID, Name) %>%
+    summarise(tpm = mean(tpm, na.rm = TRUE), .groups = "drop") %>%
+    pivot_wider(values_from = tpm, names_from = Name) %>%
+    column_to_rownames(var = "geneID")
+
+  stages  <- colnames(devmap)
+  tissues <- colnames(bodymap)
+
+  # One JSD table (mean + SD over 100 bootstraps of the pairs) per sample.
+  jsd_table <- function(pairing, expression_data, samples) {
+    gene_pairs <- get_gene_pairs(pairing)
+    pairs_split <- gene_pairs %>%
+      group_by(subOG) %>%
+      summarize(geneA = geneID[1], geneB = geneID[2], .groups = "drop")
+    n_pairs <- nrow(pairs_split)
+
+    expr <- expression_data %>%
+      rownames_to_column(var = "geneID") %>%
+      inner_join(gene_pairs, by = "geneID") %>%
+      dplyr::select(-subOG)
+
+    out <- data.frame(sample = samples, mean_JSD = 0, sd_JSD = 0)
+    for (s in seq_along(samples)) {
+      boot <- vector()
+      for (i in 1:100) {
+        bp <- pairs_split[sample(1:n_pairs, replace = TRUE), ]
+        a  <- merge(bp, expr, by.x = "geneA", by.y = "geneID")
+        ab <- merge(a, expr, by.x = "geneB", by.y = "geneID", suffixes = c("_A", "_B"))
+        cols <- ab[, c(paste(samples[s], "A", sep = "_"), paste(samples[s], "B", sep = "_"))]
+        try(boot[i] <- JSDfun(cols[, 1], cols[, 2]), silent = TRUE)
+      }
+      out$mean_JSD[s] <- mean(boot)
+      out$sd_JSD[s]   <- sd(boot)
+    }
+    out
+  }
+
+  divergence_output <- list()
+  for (p in PAIRINGS) {
+    dev <- jsd_table(p, devmap, stages)
+    names(dev)[1] <- "stage"
+    bod <- jsd_table(p, bodymap, tissues) %>%
+      rename(tissue = sample) %>%
+      separate(tissue, into = c("tissue", "maturity"), sep = "_") %>%
+      na.omit()
+    divergence_output[[p]] <- list(devmap = list(data = dev),
+                                   bodymap = list(data = bod))
+  }
+
+  # Never overwrite the deposited asset: write a *_regen sibling.
+  saveRDS(divergence_output, "data/fig3/divergence_output_regen.rds")
+}
+```
+
+## Figure 3, panels a-d
+
+```{r fig3_abcd}
+dev_ohno <- bind_rows(a22 = divergence_output$a22s$devmap$data,
+                      l22 = divergence_output$l22s$devmap$data, .id = "set")
+bod_ohno <- bind_rows(a22 = divergence_output$a22s$bodymap$data,
+                      l22 = divergence_output$l22s$bodymap$data, .id = "set")
+dev_orth <- bind_rows(o22 = divergence_output$ortho22$devmap$data,
+                      o11 = divergence_output$ortho11$devmap$data, .id = "set")
+bod_orth <- bind_rows(o22 = divergence_output$ortho22$bodymap$data,
+                      o11 = divergence_output$ortho11$bodymap$data, .id = "set")
+
+line_panel <- function(dat, cols, ylims) {
+  ggplot(dat, aes(x = factor(stage, levels = unique(stage)),
+                  y = mean_JSD, group = set, color = set, fill = set)) +
+    geom_ribbon(aes(ymin = mean_JSD - sd_JSD, ymax = mean_JSD + sd_JSD, fill = set), alpha = 0.2) +
+    geom_line(linewidth = 2, color = "black") + geom_line(linewidth = 1.5) +
+    theme_classic() +
+    scale_color_manual(values = cols) + scale_fill_manual(values = cols) +
+    ylim(ylims) +
+    theme(axis.title = element_blank(), axis.text.y = element_text(size = 12),
+          legend.position = "none")
+}
+point_panel <- function(dat, cols, ylims) {
+  ggplot(dat, aes(x = factor(tissue, levels = TISSUE_LEVELS),
+                  y = mean_JSD, shape = maturity, fill = set)) +
+    geom_errorbar(aes(ymin = mean_JSD - sd_JSD, ymax = mean_JSD + sd_JSD),
+                  width = 0.2, position = position_dodge(width = 0.4), size = 0.6) +
+    geom_point(size = 4, alpha = 0.9, position = position_dodge(width = 0.4)) +
+    scale_shape_manual(values = c(24, 22)) +
+    scale_color_manual(values = cols) + scale_fill_manual(values = cols) +
+    ylim(ylims) + theme_classic() +
+    theme(axis.title = element_blank(), axis.text = element_text(size = 12),
+          legend.position = "none")
+}
+
+ohno_cols <- c(a22 = "firebrick", l22 = "navyblue")   # Early = red, Late = blue
+orth_cols <- c(o22 = "firebrick", o11 = "palegreen")  # ohnolog = red, singleton = green
+
+fig3a <- line_panel(dev_ohno, ohno_cols, c(0.15, 0.45))
+fig3b <- point_panel(bod_ohno, ohno_cols, c(0, 0.5))
+fig3c <- line_panel(dev_orth, orth_cols, c(0.2, 0.37))
+fig3d <- point_panel(bod_orth, orth_cols, c(0.2, 0.48))
+
+fig3abcd <- grid.arrange(fig3a, fig3b, fig3c, fig3d, nrow = 2)
+ggsave("results/fig3_ABCD_divergence.pdf", fig3abcd, width = 10, height = 7)
+```
+
+## Supplementary Fig. 29 (JSD correlation scatterplots)
+
+```{r suppfig29}
+# Correlate per-sample mean JSD across pairings. Join on sample (stage or
+# tissue x maturity) so rows always align, regardless of dropped tissues.
+scatter <- function(xdat, ydat, by, xlab, ylab, title) {
+  d <- dplyr::inner_join(
+    dplyr::select(xdat, dplyr::all_of(by), x = mean_JSD),
+    dplyr::select(ydat, dplyr::all_of(by), y = mean_JSD),
+    by = by)
+  d$lab <- do.call(paste, c(d[by], sep = "_"))
+  ggscatter(d, x = "x", y = "y", label = "lab",
+            add = "reg.line", add.params = list(color = "black", fill = "lightgray"),
+            conf.int = TRUE, xlab = xlab, ylab = ylab, title = title) +
+    stat_cor(method = "pearson")
+}
+
+x_lab <- "Early rediploidization\nohnolog pairs"
+# Top row: Early (AORe) vs Late (LORe) ohnolog JSD.
+s_topL <- scatter(divergence_output$a22s$devmap$data,  divergence_output$l22s$devmap$data,
+                  "stage", x_lab, "Late rediploidization\nohnolog pairs", "DevMap")
+s_topR <- scatter(divergence_output$a22s$bodymap$data, divergence_output$l22s$bodymap$data,
+                  c("tissue", "maturity"), x_lab, "Late rediploidization\nohnolog pairs", "BodyMap")
+# Bottom row: ohnolog vs ortholog JSD.
+s_botL <- scatter(divergence_output$a22s$devmap$data,  divergence_output$ortho22$devmap$data,
+                  "stage", x_lab, "Ortholog pairs\n(Early rediploidization ohnologs)", "DevMap")
+s_botR <- scatter(divergence_output$a22s$bodymap$data, divergence_output$ortho22$bodymap$data,
+                  c("tissue", "maturity"), x_lab, "Ortholog pairs\n(Early rediploidization ohnologs)", "BodyMap")
+
+suppfig29 <- grid.arrange(s_topL, s_topR, s_botL, s_botR, nrow = 2)
+ggsave("results/suppFig29_JSD_correlations.pdf", suppfig29, width = 9, height = 8)
+```

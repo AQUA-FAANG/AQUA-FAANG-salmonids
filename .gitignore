@@ -17,6 +17,7 @@ Rplots.pdf
 # overwritten; the re-derived copies land beside them with a _regen suffix)
 *_regen.tsv.gz
 *_regen.txt
+*_regen.rds
 
 # transcriptome-analysis — local download cache and regenerated figure outputs
 transcriptome-analysis/cache/
